@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -10,4 +5,104 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model Category {
+  id    BigInt  @id @default(autoincrement())
+  name  String  @db.VarChar
+  Place Place[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model Itinerary {
+  id              BigInt            @id @default(autoincrement())
+  title           String            @db.VarChar
+  startDate       DateTime          @db.Date
+  days            BigInt?
+  budget          BigInt?
+  userId          BigInt
+  User            User              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_itinerary_user")
+  ItineraryDetail ItineraryDetail[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ItineraryDetail {
+  id          BigInt    @id @default(autoincrement())
+  arrivalTime DateTime  @db.Timetz(6)
+  leaveTime   DateTime  @db.Timetz(6)
+  order       String    @db.VarChar
+  placeId     BigInt
+  itineraryId BigInt
+  Itinerary   Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_detail_itinerary")
+  Place       Place     @relation(fields: [placeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_detail_place")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model Place {
+  id              BigInt            @id @default(autoincrement())
+  name            String            @db.VarChar
+  description     String            @db.VarChar
+  latitude        Float
+  longitude       Float
+  address         String            @db.VarChar
+  price           String            @db.VarChar
+  openTime        DateTime          @db.Timetz(6)
+  closeTime       DateTime          @db.Timetz(6)
+  categoryId      BigInt
+  image           String            @db.VarChar
+  rating          Float?
+  userRatingCount Int?
+  externalId      String?           @unique @db.VarChar(100)
+  phone           String?           @db.VarChar(50)
+  website         String?           @db.VarChar(255)
+  priceLevel      String?           @db.VarChar(10)
+  amenities       String[]
+  lastSyncedAt    DateTime?         @default(now()) @db.Timestamp(6)
+  ItineraryDetail ItineraryDetail[]
+  Category        Category          @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_place_category")
+  PlacePhoto      PlacePhoto[]
+  Review          Review[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model Review {
+  id               BigInt    @id @default(autoincrement())
+  rating           Float     @db.Real
+  comment          String    @db.VarChar
+  userId           BigInt?
+  placeId          BigInt
+  externalReviewId String?   @unique @db.VarChar(100)
+  authorName       String?   @db.VarChar(150)
+  authorAvatar     String?   @db.VarChar(255)
+  authorLocation   String?   @db.VarChar(150)
+  publishedDate    DateTime? @db.Date
+  source           String?   @default("LOCAL") @db.VarChar(20)
+  Place            Place     @relation(fields: [placeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_review_place")
+  User             User?     @relation(fields: [userId], references: [id], onUpdate: NoAction, map: "fk_review_user")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model User {
+  id        BigInt      @id @default(autoincrement())
+  fullName  String      @db.VarChar
+  email     String      @db.VarChar
+  password  String      @db.VarChar
+  avatar    String?     @db.VarChar
+  role      Boolean     @default(true)
+  createdAt DateTime    @db.Date
+  Itinerary Itinerary[]
+  Review    Review[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model PlacePhoto {
+  id           BigInt  @id @default(autoincrement())
+  placeId      BigInt
+  urlOriginal  String  @db.VarChar(500)
+  urlThumbnail String? @db.VarChar(500)
+  caption      String?
+  source       String? @default("TRIPADVISOR") @db.VarChar(20)
+  Place        Place   @relation(fields: [placeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
