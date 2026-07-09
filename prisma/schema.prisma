@@ -181,5 +181,4 @@ model ItinerarySection {
 
   itinerary Itinerary @relation(fields: [itineraryId], references: [id])
 
-  @@map("ItinerarySection")
 }
