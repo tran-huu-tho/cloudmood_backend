@@ -50,6 +50,8 @@ model Place {
   website         String?
   priceLevel      String?
   amenities       String[]
+  openingHours    Json?     @map("opening_hours")
+  subCategories   Json?     @map("sub_categories")
   lastSyncedAt    DateTime? @default(now()) @db.Timestamp(6)
 
   category              Category               @relation(fields: [categoryId], references: [id])
@@ -125,6 +127,11 @@ model ItinerarySavedPlace {
   isCollapsed Boolean @default(false)
   sortOrder   Int     @default(0)
   todoItems   Json    @default("[]")
+  startTime   String?
+  endTime     String?
+  isVisited   Boolean  @default(false) @map("is_visited")
+  cost        Decimal? @default(0) @db.Decimal(12, 2)
+  attachments Json     @default("[]")
 
   itinerary Itinerary @relation(fields: [itineraryId], references: [id])
   place     Place?    @relation(fields: [placeId], references: [id])
@@ -144,6 +151,12 @@ model ItineraryDetail {
   todoItems   Json     @default("[]")
   reactions   Json     @default("[]")
   isCollapsed Boolean  @default(false)
+
+  isVisited   Boolean  @default(false) @map("is_visited")
+  cost        Decimal? @default(0) @db.Decimal(12, 2)
+  attachments Json     @default("[]")
+  startTime   String?
+  endTime     String?
 
   itinerary Itinerary @relation(fields: [itineraryId], references: [id])
   place     Place?    @relation(fields: [placeId], references: [id])

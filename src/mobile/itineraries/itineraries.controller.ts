@@ -12,6 +12,11 @@ export class ItinerariesController {
     return this.itinerariesService.findAllByUser(req.user.id.toString());
   }
 
+  @Get('fix-db')
+  async fixDb() {
+    return this.itinerariesService.fixDb();
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.itinerariesService.findOne(+id);

@@ -6,11 +6,8 @@ export class ReviewsService {
   constructor(private prisma: PrismaService) {}
 
   async findAllByUser(userId: string) {
-    return this.prisma.review.findMany({
-      where: { userId: BigInt(userId) },
-      include: { place: true },
-      orderBy: { id: 'desc' },
-    });
+    // Cannot filter by user since userId is removed from Review
+    return [];
   }
 
   async create(userId: string, data: any) {
@@ -18,7 +15,6 @@ export class ReviewsService {
       data: {
         rating: data.rating,
         comment: data.comment,
-        userId: BigInt(userId),
         placeId: BigInt(data.placeId),
         authorName: data.authorName,
         authorAvatar: data.authorAvatar,

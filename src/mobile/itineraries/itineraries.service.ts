@@ -5,6 +5,18 @@ import { PrismaService } from '../../shared/prisma/prisma.service';
 export class ItinerariesService {
   constructor(private prisma: PrismaService) {}
 
+  async fixDb() {
+    try {
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItinerarySavedPlace" ADD COLUMN IF NOT EXISTS "startTime" text`);
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItinerarySavedPlace" ADD COLUMN IF NOT EXISTS "endTime" text`);
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "startTime" text`);
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "endTime" text`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
   async findAllByUser(userId: string) {
     return this.prisma.itinerary.findMany({
       where: { userId: BigInt(userId) },
