@@ -1,13 +1,185 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
+  engineType = "library"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id        BigInt   @id @default(autoincrement())
+  fullName  String
+  email     String   @unique
+  password  String
+  avatar    String?
+  role      Boolean  @default(true)
+  createdAt DateTime @db.Date
+
+  reviews      Review[]
+  itineraries  Itinerary[]
+
+  @@map("User")
+}
+
+model Category {
+  id   BigInt @id @default(autoincrement())
+  name String
+
+  places Place[]
+
+  @@map("Category")
+}
+
+model Place {
+  id              BigInt    @id @default(autoincrement())
+  name            String
+  description     String
+  latitude        Float
+  longitude       Float
+  address         String
+  price           String
+  openTime        DateTime  @db.Timetz
+  closeTime       DateTime  @db.Timetz
+  categoryId      BigInt
+  image           String
+  rating          Float?
+  userRatingCount Int?
+  externalId      String?   @unique
+  phone           String?
+  website         String?
+  priceLevel      String?
+  amenities       String[]
+  lastSyncedAt    DateTime? @default(now()) @db.Timestamp(6)
+
+  category              Category               @relation(fields: [categoryId], references: [id])
+  reviews               Review[]
+  photos                PlacePhoto[]
+  itinerarySavedPlaces  ItinerarySavedPlace[]
+  itineraryDetails      ItineraryDetail[]
+
+  @@map("Place")
+}
+
+model Review {
+  id               BigInt    @id @default(autoincrement())
+  rating           Float     @db.Real
+  comment          String
+  userId           BigInt?
+  placeId          BigInt
+  externalReviewId String?   @unique
+  authorName       String?
+  authorAvatar     String?
+  authorLocation   String?
+  publishedDate    DateTime? @db.Date
+  source           String?   @default("LOCAL")
+
+  place Place  @relation(fields: [placeId], references: [id])
+  user  User?  @relation(fields: [userId], references: [id])
+
+  @@map("Review")
+}
+
+model Itinerary {
+  id          BigInt   @id @default(autoincrement())
+  title       String
+  startDate   DateTime @db.Date
+  days        BigInt?
+  budget      BigInt?
+  userId      BigInt
+  destination String
+  companion   String?
+  pace        String?
+  categories  String[]
+  amenities   String[]
+  dayConfigs  Json     @default("{}")
+
+  user User @relation(fields: [userId], references: [id])
+  savedPlaces ItinerarySavedPlace[]
+  details     ItineraryDetail[]
+  sections    ItinerarySection[]
+
+  @@map("Itinerary")
+}
+
+model PlacePhoto {
+  id           BigInt  @id @default(autoincrement())
+  placeId      BigInt
+  urlOriginal  String
+  urlThumbnail String?
+  caption      String?
+  source       String? @default("TRIPADVISOR")
+
+  place Place @relation(fields: [placeId], references: [id])
+
+  @@map("PlacePhoto")
+}
+
+model ItinerarySavedPlace {
+  id          BigInt  @id @default(autoincrement())
+  itineraryId BigInt
+  placeId     BigInt?
+  section     String
+  noteText    String?
+  reactions   Json    @default("[]")
+  isCollapsed Boolean @default(false)
+  sortOrder   Int     @default(0)
+  todoItems   Json    @default("[]")
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id])
+  place     Place?    @relation(fields: [placeId], references: [id])
+
+  @@map("ItinerarySavedPlace")
+}
+
+model ItineraryDetail {
+  id          BigInt   @id @default(autoincrement())
+  arrivalTime DateTime @default(dbgenerated("'09:00:00+07'::time with time zone")) @db.Timetz
+  leaveTime   DateTime @default(dbgenerated("'11:00:00+07'::time with time zone")) @db.Timetz
+  day         Int
+  sortOrder   Int      @default(0)
+  placeId     BigInt?
+  itineraryId BigInt
+  noteText    String?
+  todoItems   Json     @default("[]")
+  reactions   Json     @default("[]")
+  isCollapsed Boolean  @default(false)
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id])
+  place     Place?    @relation(fields: [placeId], references: [id])
+
+  @@map("ItineraryDetail")
+}
+
+model ChecklistTemplateCategory {
+  id      BigInt @id @default(autoincrement())
+  name    String
+  tabType String
+
+  items ChecklistTemplateItem[]
+
+  @@map("ChecklistTemplateCategory")
+}
+
+model ChecklistTemplateItem {
+  id         BigInt @id @default(autoincrement())
+  categoryId BigInt
+  name       String
+
+  category ChecklistTemplateCategory @relation(fields: [categoryId], references: [id])
+
+  @@map("ChecklistTemplateItem")
+}
+
+model ItinerarySection {
+  id          BigInt  @id @default(autoincrement())
+  itineraryId BigInt
+  name        String
+  colorCode   String?
+  iconCode    Int?
+  sortOrder   Int     @default(0)
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id])
+
+  @@map("ItinerarySection")
 }
