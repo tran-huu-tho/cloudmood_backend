@@ -8,18 +8,29 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
+import * as bcrypt from 'bcrypt';
+
 async function main() {
-  console.log('--- USER TABLE COUNT ---');
-  const userCount = await prisma.user.count();
-  console.log('Users:', userCount);
+  console.log('--- WIPING OUT ALL PLACES AND REVIEWS ---');
+  
+  const reviewDel = await prisma.review.deleteMany({});
+  console.log(`Deleted all ${reviewDel.count} reviews.`);
 
-  console.log('--- WEATHER CACHE COUNT ---');
-  const cacheCount = await prisma.weatherCache.count();
-  console.log('Weather Cache records:', cacheCount);
+  const photoDel = await prisma.placePhoto.deleteMany({});
+  console.log(`Deleted all ${photoDel.count} photos.`);
 
-  console.log('--- WEATHER CACHE DATA ---');
-  const cache = await prisma.weatherCache.findMany();
-  console.log(JSON.stringify(cache, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+  const savedPlaceUpdate = await prisma.itinerarySavedPlace.updateMany({
+    data: { placeId: null }
+  });
+  console.log(`Updated all ${savedPlaceUpdate.count} itinerary saved places to NULL.`);
+
+  const detailUpdate = await prisma.itineraryDetail.updateMany({
+    data: { placeId: null }
+  });
+  console.log(`Updated all ${detailUpdate.count} itinerary details to NULL.`);
+
+  const placeDel = await prisma.place.deleteMany({});
+  console.log(`Deleted all ${placeDel.count} places from the database.`);
 }
 
 main()

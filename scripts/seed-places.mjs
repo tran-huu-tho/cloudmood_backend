@@ -480,6 +480,24 @@ async function main() {
       }
     }
 
+    const formatTime = (date) => {
+      if (!date) return '08:00';
+      const h = date.getUTCHours().toString().padStart(2, '0');
+      const m = date.getUTCMinutes().toString().padStart(2, '0');
+      return `${h}:${m}`;
+    };
+    const openStr = formatTime(item.openTime);
+    const closeStr = formatTime(item.closeTime);
+    const opHrs = {
+      monday: [openStr, closeStr],
+      tuesday: [openStr, closeStr],
+      wednesday: [openStr, closeStr],
+      thursday: [openStr, closeStr],
+      friday: [openStr, closeStr],
+      saturday: [openStr, closeStr],
+      sunday: [openStr, closeStr]
+    };
+
     // 1. Create Place
     const createdPlace = await prisma.place.create({
       data: {
@@ -489,8 +507,7 @@ async function main() {
         longitude: item.longitude,
         address: item.address,
         price: item.price,
-        openTime: item.openTime,
-        closeTime: item.closeTime,
+        openingHours: opHrs,
         categoryId,
         image: item.image,
         rating: item.rating,
@@ -501,7 +518,7 @@ async function main() {
         priceLevel: priceLvl,
         subCategories: ams,
         lastSyncedAt: new Date(),
-        PlacePhoto: {
+        photos: {
           create: photoRecords
         }
       }
@@ -523,13 +540,24 @@ async function main() {
           data: {
             rating: rev.rating,
             comment: rev.comment,
-            userId: null, // Keep userId null since it's simulated as an external review from Google
             placeId: createdPlace.id,
             externalReviewId: externalReviewId,
             authorName: authorName,
             authorAvatar: avatarUrl,
             publishedDate: new Date(Date.now() - (i * 3 * 24 * 60 * 60 * 1000)),
             source: 'GOOGLE'
+          },
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            placeId: true,
+            externalReviewId: true,
+            authorName: true,
+            authorAvatar: true,
+            authorLocation: true,
+            publishedDate: true,
+            source: true
           }
         });
         console.log(`  - Added Review by ${authorName} (Google Source): ${createdReview.rating} stars`);

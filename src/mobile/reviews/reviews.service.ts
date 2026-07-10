@@ -23,4 +23,22 @@ export class ReviewsService {
       },
     });
   }
+
+  async delete(id: string) {
+    return this.prisma.review.delete({
+      where: { id: BigInt(id) },
+      select: {
+        id: true,
+        rating: true,
+        comment: true,
+        placeId: true,
+        externalReviewId: true,
+        authorName: true,
+        authorAvatar: true,
+        authorLocation: true,
+        publishedDate: true,
+        source: true,
+      },
+    });
+  }
 }

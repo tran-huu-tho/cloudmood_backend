@@ -23,18 +23,13 @@ export class AuthService {
     // Note: The flutter app seems to store raw passwords according to its logic for simplicity, but we should hash it. Let's keep it compatible with existing DB if it's already in plaintext, or hash it and adapt Flutter.
     // Assuming Flutter sent raw password, we'll hash it.
     
-    // For now, to keep compatibility with existing users if they aren't hashed, we might just store it. But best practice is to hash. 
-    // Let's store raw password for backward compatibility with the existing `database.txt` schema logic unless we migrate data. 
-    // Wait, the Flutter app was using `await Supabase.instance.client.from('User').select().eq('password', password)`. 
-    // So it was storing PLAINTEXT PASSWORDS!
-    // We will keep it plaintext to avoid breaking existing users for now.
-    const password = data.password;
+    const hashedPassword = await bcrypt.hash(data.password, 10);
 
     const user = await this.prisma.user.create({
       data: {
         fullName: data.fullName,
         email: data.email,
-        password: password,
+        password: hashedPassword,
         avatar: data.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
         createdAt: new Date(),
         role: false,
@@ -60,7 +55,18 @@ export class AuthService {
       where: { email: data.email },
     });
 
-    if (!user || user.password !== data.password) {
+    if (!user) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không chính xác.');
+    }
+
+    let isPasswordCorrect = false;
+    if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+      isPasswordCorrect = await bcrypt.compare(data.password, user.password);
+    } else {
+      isPasswordCorrect = user.password === data.password;
+    }
+
+    if (!isPasswordCorrect) {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác.');
     }
 
@@ -102,13 +108,26 @@ export class AuthService {
       where: { id: BigInt(userId) },
     });
 
-    if (user?.password !== data.currentPassword) {
+    if (!user) {
+      throw new BadRequestException('Không tìm thấy người dùng.');
+    }
+
+    let isCurrentPasswordCorrect = false;
+    if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+      isCurrentPasswordCorrect = await bcrypt.compare(data.currentPassword, user.password);
+    } else {
+      isCurrentPasswordCorrect = user.password === data.currentPassword;
+    }
+
+    if (!isCurrentPasswordCorrect) {
       throw new BadRequestException('Mật khẩu hiện tại không chính xác.');
     }
 
+    const hashedNewPassword = await bcrypt.hash(data.newPassword, 10);
+
     await this.prisma.user.update({
       where: { id: BigInt(userId) },
-      data: { password: data.newPassword },
+      data: { password: hashedNewPassword },
     });
 
     return {
