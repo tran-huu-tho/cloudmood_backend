@@ -336,7 +336,7 @@ async function main() {
               phone: detail.nationalPhoneNumber || null,
               website: detail.websiteUri || null,
               priceLevel: detail.priceLevel || null,
-              amenities: [],
+              subCategories: [],
               lastSyncedAt: new Date(),
               PlacePhoto: {
                 create: uploadedPhotos

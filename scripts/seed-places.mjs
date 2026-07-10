@@ -442,7 +442,7 @@ async function main() {
     const priceLvl = item.priceLevel || 'MODERATE';
     
     // Generate amenities based on category
-    let ams = item.amenities || [];
+    let ams = item.subCategories || item.amenities || [];
     if (ams.length === 0) {
       if (item.categoryName === 'Cà phê' || item.categoryName === 'Nhà hàng' || item.categoryName === 'Quán ăn') {
         ams = ['Wifi miễn phí', 'Chỗ đỗ xe máy', 'Máy lạnh', 'Thanh toán thẻ', 'Không gian ngoài trời'];
@@ -499,7 +499,7 @@ async function main() {
         phone: ph,
         website: web,
         priceLevel: priceLvl,
-        amenities: ams,
+        subCategories: ams,
         lastSyncedAt: new Date(),
         PlacePhoto: {
           create: photoRecords

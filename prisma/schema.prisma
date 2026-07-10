@@ -47,7 +47,6 @@ model Place {
   phone           String?
   website         String?
   priceLevel      String?
-  amenities       String[]
   openingHours    Json?
   subCategories   Json?
   tripadvisorUrl  String?

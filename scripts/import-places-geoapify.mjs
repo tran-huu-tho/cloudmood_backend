@@ -310,7 +310,7 @@ async function main() {
               phone: phone ? phone.slice(0, 50) : null,
               website: website ? website.slice(0, 255) : null,
               priceLevel,
-              amenities,
+              subCategories: amenities,
               lastSyncedAt: new Date(),
               PlacePhoto: {
                 create: selectedPhotos

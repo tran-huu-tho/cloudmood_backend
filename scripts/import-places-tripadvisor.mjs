@@ -384,7 +384,7 @@ async function main() {
               phone: item.phone ? String(item.phone).slice(0, 50) : null,
               website: item.website ? String(item.website).slice(0, 255) : null,
               priceLevel: item.price_level ? String(item.price_level).slice(0, 10) : 'MODERATE',
-              amenities: item.cuisine ? item.cuisine.map(c => c.name).slice(0, 5) : ['Máy lạnh', 'Wifi miễn phí'],
+              subCategories: item.cuisine ? item.cuisine.map(c => c.name).slice(0, 5) : ['Máy lạnh', 'Wifi miễn phí'],
               lastSyncedAt: new Date(),
               PlacePhoto: {
                 create: photoRecords
@@ -499,7 +499,7 @@ async function main() {
               phone: item.phone ? String(item.phone).slice(0, 50) : null,
               website: item.website ? String(item.website).slice(0, 255) : null,
               priceLevel: 'FREE',
-              amenities: item.subcategory ? item.subcategory.map(s => s.name).slice(0, 5) : ['Điểm tham quan', 'Chụp ảnh'],
+              subCategories: item.subcategory ? item.subcategory.map(s => s.name).slice(0, 5) : ['Điểm tham quan', 'Chụp ảnh'],
               lastSyncedAt: new Date(),
               PlacePhoto: {
                 create: photoRecords
@@ -596,7 +596,7 @@ async function main() {
                 phone: obj.phone ? String(obj.phone).slice(0, 50) : null,
                 website: obj.website ? String(obj.website).slice(0, 255) : null,
                 priceLevel: 'MODERATE',
-                amenities: ['Wifi miễn phí', 'Máy lạnh', 'Phục vụ chu đáo'],
+                subCategories: ['Wifi miễn phí', 'Máy lạnh', 'Phục vụ chu đáo'],
                 lastSyncedAt: new Date(),
                 PlacePhoto: {
                   create: photoRecords
@@ -680,7 +680,7 @@ async function main() {
                   phone: obj.phone ? String(obj.phone).slice(0, 50) : null,
                   website: obj.website ? String(obj.website).slice(0, 255) : null,
                   priceLevel: 'FREE',
-                  amenities: obj.subcategory ? obj.subcategory.map(s => s.name).slice(0, 5) : ['Điểm tham quan', 'Chụp ảnh'],
+                  subCategories: obj.subcategory ? obj.subcategory.map(s => s.name).slice(0, 5) : ['Điểm tham quan', 'Chụp ảnh'],
                   lastSyncedAt: new Date(),
                   PlacePhoto: { create: photoRecords }
                 }
@@ -749,7 +749,7 @@ for (const q of FAST_FOOD_QUERIES) {
               phone: obj.phone ? String(obj.phone).slice(0, 50) : null,
               website: obj.website ? String(obj.website).slice(0, 255) : null,
               priceLevel: obj.price_level ? String(obj.price_level).slice(0, 10) : 'MODERATE',
-              amenities: obj.cuisine ? obj.cuisine.map(c => c.name).slice(0, 5) : ['WiFi', 'Parking'],
+              subCategories: obj.cuisine ? obj.cuisine.map(c => c.name).slice(0, 5) : ['WiFi', 'Parking'],
               lastSyncedAt: new Date(),
               PlacePhoto: { create: photoRecords }
             }
