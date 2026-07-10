@@ -19,11 +19,11 @@ export class WeatherController {
     @Query('lat') lat?: string,
     @Query('lon') lon?: string,
   ) {
+    if (lat && lon) {
+      return this.weatherService.getWeatherForCoordinates(+lat, +lon, cityName);
+    }
     if (cityName) {
       return this.weatherService.getWeatherForCity(cityName);
-    }
-    if (lat && lon) {
-      return this.weatherService.getWeatherForCoordinates(+lat, +lon);
     }
     // Mặc định trả về thời tiết Đà Nẵng nếu không truyền tham số
     return this.weatherService.getWeatherForCity('Da Nang');

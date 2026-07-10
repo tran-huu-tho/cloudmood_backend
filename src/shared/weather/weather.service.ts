@@ -20,58 +20,300 @@ export class WeatherService {
   /**
    * Lấy thời tiết theo tên thành phố
    */
+  /**
+   * Chuẩn hóa tên tỉnh thành phố ở Việt Nam sang đô thị trung tâm (Capital City)
+   */
+  private getCleanSearchQuery(query: string): string {
+    const q = query.trim().toLowerCase();
+    
+    const provinceMap: Record<string, string> = {
+      'an giang': 'Long Xuyên',
+      'kien giang': 'Rạch Giá',
+      'kiên giang': 'Rạch Giá',
+      'hau giang': 'Vị Thanh',
+      'hậu giang': 'Vị Thanh',
+      'lam dong': 'Đà Lạt',
+      'lâm đồng': 'Đà Lạt',
+      'dak lak': 'Buôn Ma Thuột',
+      'đắk lắk': 'Buôn Ma Thuột',
+      'daklak': 'Buôn Ma Thuột',
+      'đắc lắc': 'Buôn Ma Thuột',
+      'dak nong': 'Gia Nghĩa',
+      'đắk nông': 'Gia Nghĩa',
+      'daknong': 'Gia Nghĩa',
+      'gia lai': 'Pleiku',
+      'binh duong': 'Thủ Dầu Một',
+      'bình dương': 'Thủ Dầu Một',
+      'binh phuoc': 'Đồng Xoài',
+      'bình phước': 'Đồng Xoài',
+      'long an': 'Tân An',
+      'tien giang': 'Mỹ Tho',
+      'tiền giang': 'Mỹ Tho',
+      'dong thap': 'Cao Lãnh',
+      'đồng tháp': 'Cao Lãnh',
+      'quang nam': 'Tam Kỳ',
+      'quảng nam': 'Tam Kỳ',
+      'binh dinh': 'Quy Nhơn',
+      'bình định': 'Quy Nhơn',
+      'phu yen': 'Tuy Hòa',
+      'phú yên': 'Tuy Hòa',
+      'khanh hoa': 'Nha Trang',
+      'khánh hòa': 'Nha Trang',
+      'ninh thuan': 'Phan Rang',
+      'ninh thuận': 'Phan Rang',
+      'binh thuan': 'Phan Thiết',
+      'bình thuận': 'Phan Thiết',
+      'ba ria vung tau': 'Vũng Tàu',
+      'bà rịa vũng tàu': 'Vũng Tàu',
+      'vung tau': 'Vũng Tàu',
+      'vũng tàu': 'Vũng Tàu',
+      'quang tri': 'Đông Hà',
+      'quảng trị': 'Đông Hà',
+      'quang binh': 'Đồng Hới',
+      'quảng bình': 'Đồng Hới',
+      'nghe an': 'Vinh',
+      'nghệ an': 'Vinh',
+      'vinh phuc': 'Vĩnh Yên',
+      'vĩnh phúc': 'Vĩnh Yên',
+      'phu tho': 'Việt Trì',
+      'phú thọ': 'Việt Trì',
+      'dien bien': 'Điện Biên Phủ',
+      'điện biên': 'Điện Biên Phủ',
+      'ha nam': 'Phủ Lý',
+      'hà nam': 'Phủ Lý',
+      'quang ninh': 'Hạ Long',
+      'quảng ninh': 'Hạ Long'
+    };
+
+    if (provinceMap[q]) {
+      return provinceMap[q];
+    }
+    return query;
+  }
+
   async getWeatherForCity(cityName: string) {
     if (!cityName) {
       throw new BadRequestException('Tên thành phố không được để trống.');
     }
 
-    const cached = await this.getCachedWeather(cityName);
+    // 1. Kiểm tra cache bằng tên thành phố gốc
+    let cached = await this.getCachedWeather(cityName);
     if (cached) {
       this.logger.log(`[Cache Hit] Trả về dữ liệu thời tiết cho: ${cityName}`);
       return this.formatWeatherResponse(cached);
     }
 
-    this.logger.log(`[Cache Miss] Gọi API OpenWeatherMap cho: ${cityName}`);
-    try {
-      const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cityName)}&appid=${this.apiKey}&units=metric&lang=vi`;
-      const response = await axios.get(url);
-      const data = response.data;
+    // 2. Sử dụng Geocoding API để chuẩn hóa tên và lấy tọa độ chính xác (lấy tối đa 5 kết quả)
+    const cleanCity = this.getCleanSearchQuery(cityName);
+    // Hạn chế địa điểm chỉ tìm kiếm ở Việt Nam để tránh kết quả quốc tế không chính xác
+    const searchTerms = cleanCity.includes(', VN') || cleanCity.toLowerCase().endsWith(',vn')
+      ? cleanCity
+      : `${cleanCity}, VN`;
 
-      const weatherRecord = await this.saveToCache(data.name, data);
-      return this.formatWeatherResponse(weatherRecord);
-    } catch (error) {
-      this.logger.error(`Lỗi khi lấy thời tiết cho ${cityName}: ${error.message}`);
-      // Fallback nếu database gặp lỗi nhưng API lấy được
-      if (error.response && error.response.data) {
-        return this.formatRawResponse(error.response.data);
+    this.logger.log(`[Geocoding] Chuẩn hóa tên thành phố: ${cityName} -> ${searchTerms}`);
+    let lat: number | undefined;
+    let lon: number | undefined;
+    let resolvedName = cityName;
+
+    try {
+      const geoUrl = `http://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(searchTerms)}&limit=5&appid=${this.apiKey}`;
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanCity)}&format=json&limit=15&countrycodes=vn`;
+      
+      this.logger.log(`[Geocoding Query] Thực hiện truy vấn song song OWM và Nominatim cho: ${cleanCity}`);
+      
+      const [owmResult, osmResult] = await Promise.allSettled([
+        axios.get(geoUrl),
+        axios.get(nominatimUrl, {
+          headers: { 'User-Agent': 'CloudMood-App' },
+          timeout: 4000
+        })
+      ]);
+
+      const vnResults: any[] = [];
+      const seenCoords = new Set<string>();
+
+      // 1. Phân tích kết quả từ OpenWeatherMap
+      if (owmResult.status === 'fulfilled' && owmResult.value.data && Array.isArray(owmResult.value.data)) {
+        for (const item of owmResult.value.data) {
+          if (item.country === 'VN') {
+            const name = item.local_names?.vi || item.name;
+            const province = item.state ? item.state.replace(' Province', '') : '';
+            const displayName = province && !name.includes(province) ? `${name}, ${province}` : name;
+            
+            // Làm tròn tọa độ 2 chữ số thập phân để tránh tọa độ gần nhau bị trùng lặp
+            const coordKey = `${item.lat.toFixed(2)}_${item.lon.toFixed(2)}`;
+            if (!seenCoords.has(coordKey)) {
+              seenCoords.add(coordKey);
+              vnResults.push({
+                name: name,
+                local_names: { vi: displayName },
+                lat: item.lat,
+                lon: item.lon,
+                country: 'VN',
+                state: province,
+              });
+            }
+          }
+        }
       }
-      throw new BadRequestException(`Không thể lấy dữ liệu thời tiết cho ${cityName}.`);
+
+      // 2. Phân tích kết quả từ Nominatim OpenStreetMap (để lấy danh sách đầy đủ hơn)
+      if (osmResult.status === 'fulfilled' && osmResult.value.data && Array.isArray(osmResult.value.data)) {
+        for (const item of osmResult.value.data) {
+          const parts = item.display_name.split(',');
+          const name = parts[0]?.trim() || cleanCity;
+          const subFeature = parts[1]?.trim() || '';
+          
+          const statePart = parts.find((p: string) => p.includes('Tỉnh') || p.includes('Thành phố') || p.includes('Province')) || parts[parts.length - 3] || '';
+          const province = statePart.replace(/Tỉnh|Thành phố|Province/g, '').trim();
+          
+          let displayName = name;
+          if (subFeature && !subFeature.includes('Việt Nam') && !subFeature.includes('90911') && !subFeature.match(/^\d+$/)) {
+            displayName = `${subFeature}, ${name}`;
+          }
+          if (province && !displayName.includes(province)) {
+            displayName = `${displayName}, ${province}`;
+          }
+
+          const latNum = parseFloat(item.lat);
+          const lonNum = parseFloat(item.lon);
+          const coordKey = `${latNum.toFixed(2)}_${lonNum.toFixed(2)}`;
+          
+          if (!seenCoords.has(coordKey)) {
+            seenCoords.add(coordKey);
+            vnResults.push({
+              name: name,
+              local_names: { vi: displayName },
+              lat: latNum,
+              lon: lonNum,
+              country: 'VN',
+              state: province,
+            });
+          }
+        }
+      }
+
+      if (vnResults.length > 0) {
+        // Các thành phố du lịch/trung tâm lớn thường được người dùng mong muốn trực tiếp (bỏ qua màn hình gợi ý mơ hồ)
+        const majorCities = [
+          'đà nẵng', 'da nang', 'sa pa', 'sapa', 'hồ chí minh', 'ho chi minh', 'hà nội', 'ha noi', 
+          'nha trang', 'đà lạt', 'da lat', 'phú quốc', 'phu quoc', 'cần thơ', 'can tho', 
+          'hải phòng', 'hai phong', 'vũng tàu', 'vung tau', 'huế', 'hue', 'quy nhơn', 'quy nhon', 
+          'phan thiết', 'phan thiet', 'hạ long', 'ha long', 'bạc liêu', 'bac lieu', 'cà mau', 'ca mau'
+        ];
+        const isMajorCity = majorCities.includes(cityName.trim().toLowerCase());
+
+        // Nếu có nhiều kết quả trùng khớp, tên tìm kiếm chưa có dấu phẩy và không phải là thành phố lớn tiêu biểu
+        if (vnResults.length > 1 && !cityName.includes(',') && !isMajorCity) {
+          const candidatesRaw = vnResults.map((item: any) => {
+            const name = item.local_names?.vi || item.name;
+            const province = item.state ? item.state.replace(' Province', '') : '';
+            const displayName = province && !name.includes(province) ? `${name}, ${province}` : name;
+            return {
+              cityName: displayName,
+              lat: item.lat,
+              lon: item.lon,
+            };
+          });
+
+          // Loại bỏ các kết quả trùng tên hiển thị (deduplicate)
+          const uniqueCandidates: any[] = [];
+          const seenNames = new Set<string>();
+          for (const cand of candidatesRaw) {
+            if (!seenNames.has(cand.cityName)) {
+              seenNames.add(cand.cityName);
+              uniqueCandidates.push(cand);
+            }
+          }
+
+          // Chỉ kích hoạt màn hình chọn nếu sau khi lọc trùng vẫn còn từ 2 gợi ý khác biệt trở lên
+          if (uniqueCandidates.length > 1) {
+            this.logger.log(`[Geocoding] Phát hiện mơ hồ cho "${cityName}", tìm thấy ${uniqueCandidates.length} gợi ý khác biệt`);
+            return {
+              ambiguous: true,
+              candidates: uniqueCandidates,
+            };
+          }
+        }
+
+        const geoData = vnResults[0];
+        lat = geoData.lat;
+        lon = geoData.lon;
+        // Lấy tên tiếng Việt nếu có, nếu không dùng tên chuẩn của API
+        resolvedName = geoData.local_names?.vi || geoData.name;
+        const province = geoData.state ? geoData.state.replace(' Province', '') : '';
+        resolvedName = province && !resolvedName.includes(province) ? `${resolvedName}, ${province}` : resolvedName;
+        
+        this.logger.log(`[Geocoding] Đã tìm thấy: ${cityName} -> ${resolvedName} (${lat}, ${lon})`);
+        
+        // 3. Kiểm tra lại cache lần nữa theo tên chuẩn hóa
+        if (resolvedName.toLowerCase() !== cityName.toLowerCase()) {
+          cached = await this.getCachedWeather(resolvedName);
+          if (cached) {
+            this.logger.log(`[Cache Hit] Trả về dữ liệu thời tiết chuẩn hóa: ${resolvedName}`);
+            return this.formatWeatherResponse(cached);
+          }
+        }
+      }
+    } catch (geoError: any) {
+      this.logger.warn(`Lỗi khi gọi Geocoding API cho ${cityName}: ${geoError.message}`);
+    }
+
+    // 4. Gọi API thời tiết (ưu tiên tọa độ nếu có, fallback về tên thành phố gốc)
+    let data: any;
+    try {
+      if (lat !== undefined && lon !== undefined) {
+        this.logger.log(`[Cache Miss] Gọi API OpenWeatherMap theo tọa độ cho: ${resolvedName} (${lat}, ${lon})`);
+        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${this.apiKey}&units=metric&lang=vi`;
+        const response = await axios.get(url);
+        data = response.data;
+      } else {
+        this.logger.log(`[Cache Miss] Gọi API OpenWeatherMap theo tên cho: ${cityName}`);
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cityName)}&appid=${this.apiKey}&units=metric&lang=vi`;
+        const response = await axios.get(url);
+        data = response.data;
+      }
+    } catch (apiError: any) {
+      this.logger.error(`Lỗi khi gọi API OpenWeatherMap cho ${cityName}: ${apiError.message}`);
+      throw new BadRequestException(`Không thể lấy dữ liệu thời tiết cho ${cityName} (thành phố có thể không tồn tại).`);
+    }
+
+    // 5. Lưu kết quả vào cache và định dạng kết quả trả về
+    const finalCityName = resolvedName || data.name;
+    try {
+      const weatherRecord = await this.saveToCache(finalCityName, data);
+      return this.formatWeatherResponse(weatherRecord);
+    } catch (dbError: any) {
+      this.logger.warn(`Lỗi ghi cache cho ${finalCityName}: ${dbError.message}`);
+      return this.formatRawResponse(data);
     }
   }
 
   /**
    * Lấy thời tiết theo tọa độ
    */
-  async getWeatherForCoordinates(lat: number, lon: number) {
+  async getWeatherForCoordinates(lat: number, lon: number, customName?: string) {
     if (lat === undefined || lon === undefined) {
       throw new BadRequestException('Tọa độ lat và lon không được để trống.');
     }
 
+    let data: any;
     try {
       const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${this.apiKey}&units=metric&lang=vi`;
       const response = await axios.get(url);
-      const data = response.data;
+      data = response.data;
+    } catch (apiError: any) {
+      this.logger.error(`Lỗi khi gọi API OpenWeatherMap cho tọa độ (${lat}, ${lon}): ${apiError.message}`);
+      throw new BadRequestException(`Không thể lấy dữ liệu thời tiết cho tọa độ này.`);
+    }
 
-      // Cập nhật hoặc lưu cache dựa vào tên thành phố nhận được từ API
-      const cityName = data.name || `Coord_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+    const cityName = customName || data.name || `Coord_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+    try {
       const weatherRecord = await this.saveToCache(cityName, data);
       return this.formatWeatherResponse(weatherRecord);
-    } catch (error) {
-      this.logger.error(`Lỗi khi lấy thời tiết cho tọa độ (${lat}, ${lon}): ${error.message}`);
-      if (error.response && error.response.data) {
-        return this.formatRawResponse(error.response.data);
-      }
-      throw new BadRequestException(`Không thể lấy dữ liệu thời tiết cho tọa độ này.`);
+    } catch (dbError: any) {
+      this.logger.warn(`Lỗi ghi cache cho tọa độ (${lat}, ${lon}): ${dbError.message}`);
+      return this.formatRawResponse(data);
     }
   }
 
@@ -157,7 +399,7 @@ export class WeatherService {
    * Định dạng dữ liệu trả về từ bản ghi DB
    */
   private async formatWeatherResponse(record: any) {
-    const suggestions = await this.getRecommendations(record.condition, record.temp);
+    const suggestions = await this.getRecommendations(record.condition, record.temp, record.cityName);
     return {
       cityName: record.cityName,
       latitude: record.latitude,
@@ -179,7 +421,7 @@ export class WeatherService {
   private async formatRawResponse(data: any) {
     const condition = data.weather[0].main;
     const temp = data.main.temp;
-    const suggestions = await this.getRecommendations(condition, temp);
+    const suggestions = await this.getRecommendations(condition, temp, data.name);
     return {
       cityName: data.name,
       latitude: data.coord.lat,
@@ -198,8 +440,8 @@ export class WeatherService {
   /**
    * Bộ điều phối gợi ý (Gộp chung Rule-based và AI nếu có key)
    */
-  private async getRecommendations(condition: string, temp: number) {
-    const ruleBased = this.getRuleBasedSuggestions(condition, temp);
+  private async getRecommendations(condition: string, temp: number, cityName: string) {
+    const ruleBased = this.getRuleBasedSuggestions(condition, temp, cityName);
     
     if (this.aiApiKey) {
       try {
@@ -224,8 +466,17 @@ export class WeatherService {
   /**
    * Gợi ý dựa trên luật (Rule-based)
    */
-  private getRuleBasedSuggestions(condition: string, temp: number) {
+  private getRuleBasedSuggestions(condition: string, temp: number, cityName: string) {
     const condLower = condition.toLowerCase();
+    const cityLower = (cityName || '').toLowerCase();
+
+    // Kiểm tra xem địa điểm có phải vùng biển/du lịch biển hay không
+    const isCoastal = [
+      'nha trang', 'phú quốc', 'phu quoc', 'đà nẵng', 'da nang', 'vũng tàu', 'vung tau', 
+      'quy nhơn', 'quy nhon', 'phan thiết', 'phan thiet', 'hạ long', 'ha long', 
+      'sầm sơn', 'sam son', 'cửa lò', 'cua lo', 'côn đảo', 'con dao', 'phú yên', 'phu yen', 
+      'bình thuận', 'binh thuan', 'khánh hòa', 'khanh hoa'
+    ].some(keyword => cityLower.includes(keyword));
 
     // Mặc định
     let mood = 'Thư giãn';
@@ -250,7 +501,9 @@ export class WeatherService {
     // 3. Luật theo nhiệt độ quá nóng
     else if (temp > 32) {
       mood = 'Mát mẻ & Tránh nóng';
-      activities = ['Đi tắm biển buổi chiều', 'Vui chơi công viên nước', 'Tránh nóng tại trung tâm thương mại', 'Thưởng thức kem/trà sữa máy lạnh'];
+      activities = isCoastal 
+        ? ['Đi tắm biển buổi chiều', 'Vui chơi công viên nước', 'Tránh nóng tại trung tâm thương mại', 'Thưởng thức kem/trà sữa máy lạnh']
+        : ['Tránh nóng tại trung tâm thương mại', 'Vui chơi công viên nước/bể bơi', 'Thư giãn tại quán café máy lạnh', 'Thưởng thức kem/trà sữa mát lạnh'];
       categories = ['Café', 'Nhà hàng'];
       tips = ['Nhiệt độ ngoài trời rất cao. Vui lòng bôi kem chống nắng và uống đủ nước.', 'Hạn chế ra đường vào khung giờ 11h - 14h.'];
     }
