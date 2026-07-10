@@ -39,8 +39,6 @@ model Place {
   longitude       Float
   address         String
   price           String
-  openTime        DateTime  @db.Timetz
-  closeTime       DateTime  @db.Timetz
   categoryId      BigInt
   image           String
   rating          Float?
@@ -50,8 +48,9 @@ model Place {
   website         String?
   priceLevel      String?
   amenities       String[]
-  openingHours    Json?     @map("opening_hours")
-  subCategories   Json?     @map("sub_categories")
+  openingHours    Json?
+  subCategories   Json?
+  tripadvisorUrl  String?
   lastSyncedAt    DateTime? @default(now()) @db.Timestamp(6)
 
   category              Category               @relation(fields: [categoryId], references: [id])
