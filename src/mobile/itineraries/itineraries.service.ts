@@ -129,8 +129,6 @@ export class ItinerariesService {
         itineraryId: BigInt(data.itineraryId),
         placeId: data.placeId ? BigInt(data.placeId) : null,
         day: data.day,
-        arrivalTime: new Date(`1970-01-01T${data.arrivalTime.split('+')[0]}Z`), // simplified time parse
-        leaveTime: new Date(`1970-01-01T${data.leaveTime.split('+')[0]}Z`),
         sortOrder: data.sortOrder,
         noteText: data.noteText,
       },

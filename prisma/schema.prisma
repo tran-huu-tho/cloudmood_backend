@@ -140,8 +140,6 @@ model ItinerarySavedPlace {
 
 model ItineraryDetail {
   id          BigInt   @id @default(autoincrement())
-  arrivalTime DateTime @default(dbgenerated("'09:00:00+07'::time with time zone")) @db.Timetz
-  leaveTime   DateTime @default(dbgenerated("'11:00:00+07'::time with time zone")) @db.Timetz
   day         Int
   sortOrder   Int      @default(0)
   placeId     BigInt?
