@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
+import { WeatherService } from '../../shared/weather/weather.service';
 
 @Injectable()
 export class ItinerariesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private weatherService: WeatherService,
+  ) {}
 
   async fixDb() {
     try {
@@ -30,7 +34,7 @@ export class ItinerariesService {
   }
 
   async findOne(id: number) {
-    return this.prisma.itinerary.findUnique({
+    const itinerary = await this.prisma.itinerary.findUnique({
       where: { id: BigInt(id) },
       include: {
         sections: true,
@@ -38,7 +42,24 @@ export class ItinerariesService {
         savedPlaces: { include: { place: { include: { category: true } } } },
       },
     });
+
+    if (!itinerary) return null;
+
+    let weather: any = null;
+    try {
+      if (itinerary.destination) {
+        weather = await this.weatherService.getWeatherForCity(itinerary.destination);
+      }
+    } catch (e) {
+      // Ignored: do not crash itinerary fetch if weather API is unreachable
+    }
+
+    return {
+      ...itinerary,
+      weather,
+    };
   }
+
 
   async create(userId: string, data: any) {
     const itinerary = await this.prisma.itinerary.create({

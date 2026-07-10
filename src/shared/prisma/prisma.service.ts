@@ -12,10 +12,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleInit() {
-    await this.$connect();
+    try {
+      await this.$connect();
+    } catch (e) {
+      console.warn('⚠️ Cảnh báo: Không thể kết nối cơ sở dữ liệu. Ứng dụng vẫn sẽ chạy nhưng các tính năng liên quan đến DB có thể không hoạt động.', e.message);
+    }
   }
 
   async onModuleDestroy() {
-    await this.$disconnect();
+    try {
+      await this.$disconnect();
+    } catch (e) {
+      // Ignored
+    }
   }
 }

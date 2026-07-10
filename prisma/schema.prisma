@@ -195,3 +195,21 @@ model ItinerarySection {
   itinerary Itinerary @relation(fields: [itineraryId], references: [id])
 
 }
+
+model WeatherCache {
+  id          BigInt   @id @default(autoincrement())
+  cityName    String   @unique @db.VarChar(150)
+  latitude    Float
+  longitude   Float
+  temp        Float    // Temp in Celsius
+  humidity    Int      // Humidity percentage
+  windSpeed   Float    // Wind speed in m/s
+  condition   String   // Weather group (Rain, Clouds, Clear, etc.)
+  description String   // Detailed description in Vietnamese
+  icon        String   // Weather icon ID
+  rawResponse Json     // Raw JSON response from OpenWeatherMap
+  updatedAt   DateTime @updatedAt
+
+  @@map("WeatherCache")
+}
+

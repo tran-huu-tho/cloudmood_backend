@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PlacesModule } from './mobile/places/places.module';
 import { ItinerariesModule } from './mobile/itineraries/itineraries.module';
 import { ReviewsModule } from './mobile/reviews/reviews.module';
+import { WeatherModule } from './shared/weather/weather.module';
 
 @Module({
   imports: [
@@ -14,8 +15,10 @@ import { ReviewsModule } from './mobile/reviews/reviews.module';
     PlacesModule,
     ItinerariesModule,
     ReviewsModule,
+    WeatherModule,
   ],
   controllers: [],
   providers: [],
 })
 export class AppModule {}
+
