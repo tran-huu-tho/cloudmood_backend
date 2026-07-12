@@ -402,7 +402,9 @@ export class WeatherService {
    * Định dạng dữ liệu trả về từ bản ghi DB
    */
   private async formatWeatherResponse(record: any) {
-    const suggestions = await this.getRecommendations(record.condition, record.temp, record.cityName);
+    const raw = record.rawResponse as any;
+    const rainfall = raw?.rain?.['1h'] || raw?.rain?.['3h'] || 0;
+    const suggestions = await this.getRecommendations(record.condition, record.temp, record.humidity, record.windSpeed, record.cityName);
     return {
       cityName: record.cityName,
       latitude: record.latitude,
@@ -413,6 +415,7 @@ export class WeatherService {
       condition: record.condition,
       description: record.description,
       icon: record.icon,
+      rainfall,
       updatedAt: record.updatedAt,
       suggestions,
     };
@@ -424,7 +427,8 @@ export class WeatherService {
   private async formatRawResponse(data: any) {
     const condition = data.weather[0].main;
     const temp = data.main.temp;
-    const suggestions = await this.getRecommendations(condition, temp, data.name);
+    const rainfall = data.rain?.['1h'] || data.rain?.['3h'] || 0;
+    const suggestions = await this.getRecommendations(condition, temp, data.main.humidity, data.wind.speed, data.name);
     return {
       cityName: data.name,
       latitude: data.coord.lat,
@@ -435,23 +439,47 @@ export class WeatherService {
       condition: condition,
       description: data.weather[0].description,
       icon: data.weather[0].icon,
+      rainfall,
       updatedAt: new Date(),
       suggestions,
     };
   }
 
-  /**
-   * Bộ điều phối gợi ý (Gộp chung Rule-based và AI nếu có key)
-   */
-  private async getRecommendations(condition: string, temp: number, cityName: string) {
+  private async getRecommendations(condition: string, temp: number, humidity: number, windSpeed: number, cityName: string) {
     const ruleBased = this.getRuleBasedSuggestions(condition, temp, cityName);
+    
+    // Default rain forecasting logic
+    const condLower = condition.toLowerCase();
+    let defaultRainProb = 0;
+    let defaultRainEst = 0;
+    let defaultRainForecast = 'Không có dấu hiệu mưa.';
+
+    if (condLower.includes('rain') || condLower.includes('drizzle')) {
+      defaultRainProb = 90;
+      defaultRainEst = 5.0;
+      defaultRainForecast = 'Hiện tại đang có mưa, lượng mưa vừa phải.';
+    } else if (condLower.includes('thunderstorm')) {
+      defaultRainProb = 95;
+      defaultRainEst = 12.0;
+      defaultRainForecast = 'Thời tiết dông bão có mưa lớn và gió giật mạnh.';
+    } else if (condLower.includes('clouds')) {
+      defaultRainProb = humidity > 80 ? 40 : 15;
+      defaultRainForecast = humidity > 80 ? 'Trời nhiều mây, độ ẩm cao, có thể có mưa rào rải rác.' : 'Trời nhiều mây rải rác, không mưa.';
+    }
+
+    const defaultRain = {
+      rainProbability: defaultRainProb,
+      estimatedRainfall: defaultRainEst,
+      rainForecast: defaultRainForecast,
+    };
     
     if (this.aiApiKeys.length > 0) {
       try {
-        const aiSuggestions = await this.getAISuggestions(condition, temp, ruleBased);
+        const aiSuggestions = await this.getAISuggestions(condition, temp, humidity, windSpeed, ruleBased);
         if (aiSuggestions) {
           return {
-            source: 'AI (Gemini)',
+            source: 'CloudBros AI',
+            ...defaultRain,
             ...aiSuggestions,
           };
         }
@@ -461,7 +489,8 @@ export class WeatherService {
     }
 
     return {
-      source: 'Rule-based',
+      source: 'Hệ thống định tuyến (Rule-based)',
+      ...defaultRain,
       ...ruleBased,
     };
   }
@@ -521,7 +550,7 @@ export class WeatherService {
     return { mood, activities, categories, tips };
   }
 
-  private async getAISuggestions(condition: string, temp: number, fallback: any) {
+  private async getAISuggestions(condition: string, temp: number, humidity: number, windSpeed: number, fallback: any) {
     if (this.aiApiKeys.length === 0) return null;
 
     let dbPlaces: any[] = [];
@@ -543,13 +572,19 @@ export class WeatherService {
       .map((p) => `- [ID: ${p.id}] ${p.name} (Danh mục: ${p.category.name}, Địa chỉ: ${p.address})`)
       .join('\n');
 
-    const prompt = `Thời tiết hiện tại: Trạng thái ${condition}, Nhiệt độ ${temp}°C.
+    const prompt = `Thời tiết hiện tại: Trạng thái ${condition}, Nhiệt độ ${temp}°C, Độ ẩm ${humidity}%, Tốc độ gió ${windSpeed} m/s.
 Đây là danh sách các địa điểm thực tế có trong cơ sở dữ liệu của hệ thống:
 ${placesListStr}
 
-Dựa trên thời tiết này, hãy gợi ý hoạt động du lịch phù hợp. Bạn bắt buộc phải chọn ra từ 3 đến 5 địa điểm phù hợp nhất từ danh sách trên để đề xuất cho người dùng.
+Nhiệm vụ của bạn:
+1. Đánh giá khả năng mưa hôm nay (từ 0% đến 100%) và lượng mưa dự báo (mm) dựa trên trạng thái thời tiết, độ ẩm và tốc độ gió.
+2. Dựa trên thời tiết này, hãy gợi ý hoạt động du lịch phù hợp. Bạn bắt buộc phải chọn ra từ 3 đến 5 địa điểm phù hợp nhất từ danh sách trên để đề xuất cho người dùng.
+
 Trả về định dạng JSON thuần túy (không kèm codeblock markdown, chỉ JSON thô) có dạng:
 {
+  "rainProbability": "khả năng có mưa dự báo từ 0 đến 100 dạng số nguyên (ví dụ: 80)",
+  "estimatedRainfall": "lượng mưa dự kiến dạng số thực mm (ví dụ: 5.5, nếu không mưa để 0)",
+  "rainForecast": "1 câu nhận định ngắn gọn về dự báo mưa trong ngày (ví dụ: Khả năng mưa dông vào chiều tối, lượng mưa vừa phải)",
   "mood": "tâm trạng gợi ý ví dụ: Chill nhẹ nhàng tránh mưa",
   "activities": ["hoạt động 1", "hoạt động 2", "hoạt động 3"],
   "categories": ["Café", "Nhà hàng", "Bảo tàng", "Công viên"],

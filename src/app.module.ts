@@ -7,6 +7,7 @@ import { ItinerariesModule } from './mobile/itineraries/itineraries.module';
 import { ReviewsModule } from './mobile/reviews/reviews.module';
 import { CategoriesModule } from './mobile/categories/categories.module';
 import { WeatherModule } from './shared/weather/weather.module';
+import { NotificationsModule } from './shared/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { WeatherModule } from './shared/weather/weather.module';
     ReviewsModule,
     WeatherModule,
     CategoriesModule,
+    NotificationsModule,
   ],
   controllers: [],
   providers: [],
