@@ -1,20 +1,23 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsService } from '../notifications/notifications.service';
 import axios from 'axios';
 
 @Injectable()
 export class WeatherService {
   private readonly logger = new Logger(WeatherService.name);
   private readonly apiKey: string;
-  private readonly aiApiKey: string;
+  private readonly aiApiKeys: string[];
 
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private notificationsService: NotificationsService,
   ) {
     this.apiKey = this.configService.get<string>('WEATHER_API_KEY') || '';
-    this.aiApiKey = this.configService.get<string>('AI_API_KEY') || '';
+    const rawAiKey = this.configService.get<string>('AI_API_KEY') || '';
+    this.aiApiKeys = rawAiKey.split(',').map((k) => k.trim()).filter(Boolean);
   }
 
   /**
@@ -443,7 +446,7 @@ export class WeatherService {
   private async getRecommendations(condition: string, temp: number, cityName: string) {
     const ruleBased = this.getRuleBasedSuggestions(condition, temp, cityName);
     
-    if (this.aiApiKey) {
+    if (this.aiApiKeys.length > 0) {
       try {
         const aiSuggestions = await this.getAISuggestions(condition, temp, ruleBased);
         if (aiSuggestions) {
@@ -518,39 +521,89 @@ export class WeatherService {
     return { mood, activities, categories, tips };
   }
 
-  /**
-   * Gọi AI (Gemini API) để tạo gợi ý thời tiết nâng cao
-   */
   private async getAISuggestions(condition: string, temp: number, fallback: any) {
+    if (this.aiApiKeys.length === 0) return null;
+
+    let dbPlaces: any[] = [];
+    try {
+      dbPlaces = await this.prisma.place.findMany({
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          category: { select: { name: true } },
+        },
+        take: 55,
+      });
+    } catch (dbErr) {
+      this.logger.error(`Error fetching places for AI weather suggestions: ${dbErr.message}`);
+    }
+
+    const placesListStr = dbPlaces
+      .map((p) => `- [ID: ${p.id}] ${p.name} (Danh mục: ${p.category.name}, Địa chỉ: ${p.address})`)
+      .join('\n');
+
     const prompt = `Thời tiết hiện tại: Trạng thái ${condition}, Nhiệt độ ${temp}°C.
-Hãy gợi ý hoạt động du lịch phù hợp. Trả về định dạng JSON thuần túy (không kèm codeblock markdown, chỉ JSON thô) có dạng:
+Đây là danh sách các địa điểm thực tế có trong cơ sở dữ liệu của hệ thống:
+${placesListStr}
+
+Dựa trên thời tiết này, hãy gợi ý hoạt động du lịch phù hợp. Bạn bắt buộc phải chọn ra từ 3 đến 5 địa điểm phù hợp nhất từ danh sách trên để đề xuất cho người dùng.
+Trả về định dạng JSON thuần túy (không kèm codeblock markdown, chỉ JSON thô) có dạng:
 {
-  "mood": "tâm trạng gợi ý ví dụ: Chill nhẹ nhàng",
+  "mood": "tâm trạng gợi ý ví dụ: Chill nhẹ nhàng tránh mưa",
   "activities": ["hoạt động 1", "hoạt động 2", "hoạt động 3"],
-  "categories": ["Café", "Bảo tàng", "Nhà hàng", "Công viên"],
+  "categories": ["Café", "Nhà hàng", "Bảo tàng", "Công viên"],
+  "places": [
+    {
+      "id": "ID của địa điểm đã chọn",
+      "name": "Tên địa điểm đã chọn",
+      "category": "Danh mục địa điểm đã chọn",
+      "address": "Địa chỉ địa điểm đã chọn",
+      "reason": "Lý do đề xuất cụ thể gắn với thời tiết hiện tại (ví dụ: Không gian máy lạnh ấm cúng trốn mưa, món ăn lẩu nóng phù hợp trời lạnh)"
+    }
+  ],
   "tips": ["lời khuyên 1", "lời khuyên 2"]
 }
-Lưu ý: Chỉ được gợi ý các danh mục (categories) có trong danh sách sau: ["Café", "Nhà hàng", "Bảo tàng", "Công viên", "Di tích", "Khác"]. Gợi ý bằng tiếng Việt.`;
+Lưu ý:
+- Mục "places" CHỈ được chọn từ danh sách địa điểm thực tế được cung cấp ở trên. Không được tự chế hoặc lấy địa điểm bên ngoài.
+- Chỉ được gợi ý các danh mục (categories) có trong danh sách sau: ["Café", "Nhà hàng", "Bảo tàng", "Công viên", "Di tích", "Khác"].
+- Trả lời bằng tiếng Việt.`;
 
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.aiApiKey}`;
-      const response = await axios.post(
-        url,
-        {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
+    for (let i = 0; i < this.aiApiKeys.length; i++) {
+      const apiKey = this.aiApiKeys[i];
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+        const response = await axios.post(
+          url,
+          {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+            },
           },
-        },
-        { timeout: 8000 },
-      );
+          { timeout: 15000 },
+        );
 
-      const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (responseText) {
-        return JSON.parse(responseText.trim());
+        const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (responseText) {
+          return JSON.parse(responseText.trim());
+        }
+      } catch (e) {
+        const statusCode = e.response?.status;
+        this.logger.warn(`AI Gemini API Error with key index ${i} (status ${statusCode}): ${e.message}`);
+        
+        // Rotate on rate limit (429) or invalid key (400) if more keys exist
+        if ((statusCode === 429 || statusCode === 400) && i < this.aiApiKeys.length - 1) {
+          this.logger.warn(`Rotating to next API key for weather suggestions...`);
+          this.notificationsService.addNotification(
+            'rotation',
+            'Xoay vòng API Key thành công',
+            `Key số ${i + 1} bị cạn hạn ngạch (status ${statusCode}). Đã tự động xoay sang Key số ${i + 2} cho Weather gợi ý.`
+          );
+          continue;
+        }
+        break;
       }
-    } catch (e) {
-      this.logger.warn(`AI Gemini API Error: ${e.message}`);
     }
     return null;
   }
