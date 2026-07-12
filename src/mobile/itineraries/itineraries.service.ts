@@ -26,8 +26,8 @@ export class ItinerariesService {
       where: { userId: BigInt(userId) },
       include: {
         sections: true,
-        details: { include: { place: { include: { category: true } } } },
-        savedPlaces: { include: { place: { include: { category: true } } } },
+        details: { include: { place: { include: { category: true, photos: true } } } },
+        savedPlaces: { include: { place: { include: { category: true, photos: true } } } },
       },
       orderBy: { id: 'desc' },
     });
@@ -38,8 +38,8 @@ export class ItinerariesService {
       where: { id: BigInt(id) },
       include: {
         sections: true,
-        details: { include: { place: { include: { category: true } } } },
-        savedPlaces: { include: { place: { include: { category: true } } } },
+        details: { include: { place: { include: { category: true, photos: true } } } },
+        savedPlaces: { include: { place: { include: { category: true, photos: true } } } },
       },
     });
 
@@ -91,9 +91,17 @@ export class ItinerariesService {
   }
 
   async update(id: number, data: any) {
+    const updateData = { ...data };
+    if (updateData.days !== undefined) {
+      updateData.days = BigInt(updateData.days);
+    }
+    if (updateData.budget !== undefined) {
+      updateData.budget = BigInt(updateData.budget);
+    }
+
     return this.prisma.itinerary.update({
       where: { id: BigInt(id) },
-      data,
+      data: updateData,
     });
   }
 
@@ -132,7 +140,7 @@ export class ItinerariesService {
         sortOrder: data.sortOrder,
         noteText: data.noteText,
       },
-      include: { place: { include: { category: true } } },
+      include: { place: { include: { category: true, photos: true } } },
     });
   }
 
@@ -165,7 +173,7 @@ export class ItinerariesService {
         noteText: data.noteText,
         sortOrder,
       },
-      include: { place: { include: { category: true } } },
+      include: { place: { include: { category: true, photos: true } } },
     });
   }
 

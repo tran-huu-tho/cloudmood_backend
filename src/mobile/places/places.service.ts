@@ -20,12 +20,12 @@ export class PlacesService {
       if (category) {
         return this.prisma.place.findMany({
           where: { categoryId: category.id },
-          include: { category: true },
+          include: { category: true, photos: true },
         });
       }
     }
     return this.prisma.place.findMany({
-      include: { category: true },
+      include: { category: true, photos: true },
     });
   }
 
@@ -87,7 +87,7 @@ export class PlacesService {
 
     const localPlaces = await this.prisma.place.findMany({
       where: dbFilter,
-      include: { category: true },
+      include: { category: true, photos: true },
     });
     
     // Map local places to common format
