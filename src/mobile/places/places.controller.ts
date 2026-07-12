@@ -15,4 +15,13 @@ export class PlacesController {
     const isSupported = await this.placesService.isDestinationSupported(cityName);
     return { supported: isSupported };
   }
+
+  @Get('search')
+  async search(
+    @Query('destination') destination: string,
+    @Query('query') query?: string,
+    @Query('categoryName') categoryName?: string,
+  ) {
+    return this.placesService.searchPlaces(destination, query, categoryName);
+  }
 }

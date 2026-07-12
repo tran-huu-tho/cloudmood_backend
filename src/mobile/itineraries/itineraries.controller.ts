@@ -17,6 +17,11 @@ export class ItinerariesController {
     return this.itinerariesService.fixDb();
   }
 
+  @Get('checklist-templates')
+  async getChecklistTemplates() {
+    return this.itinerariesService.getChecklistTemplates();
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.itinerariesService.findOne(+id);

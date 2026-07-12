@@ -41,4 +41,16 @@ export class ReviewsService {
       },
     });
   }
+
+  async findByPlace(placeId: string) {
+    const reviews = await this.prisma.review.findMany({
+      where: { placeId: BigInt(placeId) },
+      orderBy: { publishedDate: 'desc' },
+    });
+    return reviews.map((r) => ({
+      ...r,
+      id: r.id.toString(),
+      placeId: r.placeId?.toString(),
+    }));
+  }
 }

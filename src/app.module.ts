@@ -5,9 +5,8 @@ import { ConfigModule } from '@nestjs/config';
 import { PlacesModule } from './mobile/places/places.module';
 import { ItinerariesModule } from './mobile/itineraries/itineraries.module';
 import { ReviewsModule } from './mobile/reviews/reviews.module';
+import { CategoriesModule } from './mobile/categories/categories.module';
 import { WeatherModule } from './shared/weather/weather.module';
-import { AdminAiModule } from './admin/ai/ai.module';
-import { NotificationsModule } from './shared/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -18,8 +17,7 @@ import { NotificationsModule } from './shared/notifications/notifications.module
     ItinerariesModule,
     ReviewsModule,
     WeatherModule,
-    AdminAiModule,
-    NotificationsModule,
+    CategoriesModule,
   ],
   controllers: [],
   providers: [],
