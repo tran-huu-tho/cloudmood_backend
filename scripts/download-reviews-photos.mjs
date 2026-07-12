@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { prisma } from './prisma-client.mjs';
+import { fetchWithKeyRotation } from './api-key-manager.mjs';
 
 // Configuration
 const TRY_API = true; // Attempt TripAdvisor API for TripAdvisor places
@@ -18,24 +19,20 @@ function stripHtml(htmlStr) {
 
 // Fetch reviews using the reviews/v2/list POST endpoint
 async function fetchTripAdvisorReviewsV2(locationId, contentType) {
-  const apiKey = process.env.RAPIDAPI_KEY;
   const host = 'travel-advisor.p.rapidapi.com';
   
   const payload = {
     contentType,
     detailId: Number(locationId),
     pagee: 0,
-    filters: [
-      { id: 'rating', value: ['5', '4', '3'] } // Target positive reviews primarily
-    ],
+    filters: [],
     updateToken: ''
   };
 
-  const res = await fetch(`https://${host}/reviews/v2/list?currency=USD&units=km&lang=vi_VN`, {
+  const res = await fetchWithKeyRotation(`https://${host}/reviews/v2/list?currency=USD&units=km&lang=vi_VN`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-rapidapi-key': apiKey,
       'x-rapidapi-host': host
     },
     body: JSON.stringify(payload)
@@ -44,11 +41,10 @@ async function fetchTripAdvisorReviewsV2(locationId, contentType) {
   if (res.status === 204) {
     // If no content, try without rating filters to see if that returns anything
     payload.filters = [];
-    const retryRes = await fetch(`https://${host}/reviews/v2/list?currency=USD&units=km&lang=vi_VN`, {
+    const retryRes = await fetchWithKeyRotation(`https://${host}/reviews/v2/list?currency=USD&units=km&lang=vi_VN`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-rapidapi-key': apiKey,
         'x-rapidapi-host': host
       },
       body: JSON.stringify(payload)
@@ -101,7 +97,6 @@ function extractReviewsFromV2Response(data) {
       reviews.push({
         rating,
         comment,
-        userId: null,
         externalReviewId: `ta_review_${card.trackingKey ? JSON.parse(card.trackingKey).rid : Math.random()}`,
         authorName,
         authorAvatar,
@@ -122,7 +117,7 @@ async function main() {
   console.log('Fetching all places from the database...');
   const places = await prisma.place.findMany({
     include: {
-      Category: true
+      category: true
     }
   });
 
@@ -134,7 +129,7 @@ async function main() {
 
   for (const place of places) {
     console.log(`\n--------------------------------------------------`);
-    console.log(`Processing Place ID ${place.id}: "${place.name}" [${place.Category.name}]`);
+    console.log(`Processing Place ID ${place.id}: "${place.name}" [${place.category.name}]`);
 
     // ==========================================
     // 1. POPULATE REVIEWS (ONLY REAL REVIEWS FROM API)
@@ -145,8 +140,8 @@ async function main() {
       const locationId = place.externalId.split('_').pop();
       
       let contentType = 'restaurant';
-      if (place.externalId.startsWith('ta_hotel_')) contentType = 'hotel';
-      else if (place.externalId.startsWith('ta_attr_')) contentType = 'attraction';
+      if (place.category.name === 'Khách sạn') contentType = 'hotel';
+      else if (place.category.name === 'Điểm tham quan' || place.category.name === 'Công viên' || place.category.name === 'Trung tâm thương mại') contentType = 'attraction';
 
       console.log(`  Calling TripAdvisor reviews API (Location ID: ${locationId}, Type: ${contentType})...`);
       apiCallsCount++;

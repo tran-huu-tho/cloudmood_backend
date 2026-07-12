@@ -1,14 +1,8 @@
 import 'dotenv/config';
 import { prisma } from './prisma-client.mjs';
+import { fetchWithKeyRotation } from './api-key-manager.mjs';
 
-// Verify Env Variables
-const { RAPIDAPI_KEY } = process.env;
 const host = 'travel-advisor.p.rapidapi.com';
-
-if (!RAPIDAPI_KEY) {
-  console.error('Error: RAPIDAPI_KEY is missing in .env');
-  process.exit(1);
-}
 
 // Sleep helper
 function sleep(ms) {
@@ -98,11 +92,6 @@ function generateDescription(name, categoryName) {
   
   if (clean.includes('cái răng')) return 'Chợ nổi Cái Răng là nét văn hóa đặc trưng sông nước miền Tây, nơi giao thương nông sản, trái cây nhộn nhịp vào buổi sáng sớm trên sông Cần Thơ.';
   if (clean.includes('bình thủy')) return 'Ngôi nhà cổ hơn 100 năm tuổi mang kiến trúc Pháp cổ kính xen lẫn phong cách Á Đông, là bối cảnh của nhiều bộ phim điện ảnh nổi tiếng.';
-  if (clean.includes('trúc lâm')) return 'Ngôi thiền viện lớn nhất miền Tây Nam Bộ với kiến trúc thời Lý - Trần độc đáo, mang lại cảm giác thanh tịnh và yên bình cho du khách.';
-  if (clean.includes('ninh kiều')) {
-    if (clean.includes('khách sạn')) return 'Khách sạn sở hữu tầm nhìn đắt giá hướng ra ngã ba sông Hậu và bến Ninh Kiều, đầy đủ tiện nghi hiện đại.';
-    return 'Biểu tượng du lịch của Tây Đô, tọa lạc bên bờ sông Hậu hiền hòa, điểm ngắm cảnh và dạo mát lý tưởng về đêm.';
-  }
   if (clean.includes('cầu cần thơ')) return 'Cầu dây văng có nhịp chính dài nhất Đông Nam Á tại thời điểm hoàn thành, nối liền hai bờ sông Hậu nối liền Cần Thơ và Vĩnh Long.';
   if (clean.includes('chùa ông')) return 'Ngôi chùa cổ kính độc đáo của người Hoa tại bến Ninh Kiều, nổi tiếng với kiến trúc chạm khắc tinh xảo và sự linh thiêng.';
   if (clean.includes('bảo tàng')) return 'Nơi lưu giữ và trưng bày hàng nghìn hiện vật lịch sử, văn hóa độc đáo của con người Cần Thơ qua các thời kỳ phát triển.';
@@ -119,6 +108,10 @@ function generateDescription(name, categoryName) {
   if (clean.includes('nam bộ')) return 'Địa chỉ ẩm thực nổi tiếng bên bến Ninh Kiều, chuyên phục vụ các món ăn truyền thống Nam Bộ đặc sắc.';
   if (clean.includes('sao hôm')) return 'Nhà hàng nằm trong khu nhà lồng cổ bến Ninh Kiều, không gian lãng mạn hướng sông, chuyên món Việt và ẩm thực quốc tế.';
   if (clean.includes('princess')) return 'Du thuyền ẩm thực sang trọng trên sông Hậu, trải nghiệm ngắm cảnh Cần Thơ lung linh về đêm cùng các món ăn đẳng cấp.';
+  if (clean.includes('vincom')) return 'Trung tâm thương mại hiện đại sầm uất hàng đầu Cần Thơ, tích hợp mua sắm, vui chơi giải trí và ẩm thực đa dạng.';
+  if (clean.includes('lotte')) return 'Khu phức hợp siêu thị, trung tâm thương mại và rạp chiếu phim hiện đại, điểm vui chơi mua sắm phổ biến tại Cần Thơ.';
+  if (clean.includes('sense city')) return 'Trung tâm thương mại lớn ngay Ninh Kiều, biểu tượng mua sắm và vui chơi giải trí quen thuộc của người dân Cần Thơ.';
+  if (clean.includes('go!')) return 'Đại siêu thị và trung tâm thương mại lớn ở Cái Răng, địa điểm mua sắm nhu yếu phẩm và ẩm thực phong phú.';
 
   switch (categoryName) {
     case 'Khách sạn':
@@ -138,7 +131,7 @@ function generateDescription(name, categoryName) {
   }
 }
 
-// Generate descriptive captions
+// Helper to generate descriptive captions
 function getPhotoCaptions(placeName, categoryName) {
   switch (categoryName) {
     case 'Khách sạn':
@@ -189,10 +182,9 @@ async function fetchTripAdvisor(endpoint, params = {}) {
   }
 
   console.log(`Fetching TripAdvisor endpoint: ${endpoint}...`);
-  const res = await fetch(url, {
+  const res = await fetchWithKeyRotation(url, {
     method: 'GET',
     headers: {
-      'x-rapidapi-key': RAPIDAPI_KEY,
       'x-rapidapi-host': host
     }
   });
@@ -231,42 +223,76 @@ async function isDuplicatePlace(name, lat, lon, categoryId) {
   return false;
 }
 
-// Target high-density urban areas for massive restaurant, cafe, hotel, and church scans
+// Target areas for coordinate scans
 const URBAN_CENTERS = [
   { name: 'Ninh Kiều Center', lat: '10.0338', lon: '105.7876' },
   { name: 'Bình Thủy District', lat: '10.0756', lon: '105.7335' },
   { name: 'Cái Răng District', lat: '10.0076', lon: '105.7483' },
-  { name: 'Thới Lai District', lat: '9.9627', lon: '105.7350' },
-  { name: 'Vĩnh Thạnh District', lat: '10.0149', lon: '105.6570' },
-  { name: 'Phong Điền District', lat: '10.0270', lon: '105.7910' },
-  { name: 'Ô Môn District', lat: '10.0135', lon: '105.7355' },
-  { name: 'Thốt Nốt District', lat: '9.9446', lon: '105.7355' },
-  { name: 'Cờ Đỏ District', lat: '10.0555', lon: '105.7420' }
+  { name: 'Phong Điền Town', lat: '10.0067', lon: '105.6983' },
+  { name: 'Ô Môn District Center', lat: '10.1256', lon: '105.6335' },
+  { name: 'Thốt Nốt District Center', lat: '10.2756', lon: '105.5335' }
 ];
 
-// Additional keyword searches to expand
-const HOTEL_QUERIES = [
-  'khách sạn Cần Thơ',
-  'homestay Cần Thơ',
-  'nhà nghỉ Cần Thơ',
-  'resort Cần Thơ',
-  // Fast‑food and quick‑serve chains moved to FAST_FOOD_QUERIES
+// Targeted Queries for Malls, Pagodas, Cafes, and Eateries to fill database accurately
+const TARGETED_MALL_QUERIES = [
+  'Vincom Plaza Xuân Khánh Cần Thơ',
+  'Vincom Plaza Hùng Vương Cần Thơ',
+  'Sense City Cần Thơ',
+  'Lotte Mart Cần Thơ',
+  'GO Cần Thơ',
+  'Big C Cần Thơ'
 ];
 
-// Additional queries for churches, pagodas, and temples
-const CHURCH_QUERIES = [
-  'nhà thờ Cần Thơ',
-  'chùa Cần Thơ',
-  'đền Cần Thơ',
-  'đền thờ Cần Thơ'
+const TARGETED_RELIGIOUS_QUERIES = [
+  'Chùa Ông Cần Thơ',
+  'Chùa Phật Học Cần Thơ',
+  'Thiền Viện Trúc Lâm Phương Nam Cần Thơ',
+  'Chùa Nam Nhã Cần Thơ',
+  'Chùa Munirangsyaram Cần Thơ',
+  'Chùa Khánh Quang Cần Thơ',
+  'Nhà thờ Chính tòa Cần Thơ'
 ];
 
-const FAST_FOOD_QUERIES = [
-  'jollibee Cần Thơ',
-  'kfc Cần Thơ',
-  'burger king Cần Thơ',
-  'pizzahut Cần Thơ',
-  'mr pizza Cần Thơ'
+const TARGETED_CAFE_QUERIES = [
+  'Highlands Coffee Cần Thơ',
+  'Phúc Long Cần Thơ',
+  'The Coffee House Cần Thơ',
+  'Trung Nguyên Legend Cần Thơ',
+  'Tiệm Trà Cỏ Ngọt Cần Thơ',
+  'Infini T Can Tho',
+  'Góc Phố Cafe Cần Thơ',
+  'Amia Coffee Cần Thơ',
+  'Cà phê Vợt Cần Thơ'
+];
+
+const TARGETED_EATERY_QUERIES = [
+  'Nem Nướng Thanh Vân Cần Thơ',
+  'Lẩu Mắm Dạ Lý Cần Thơ',
+  'Lẩu Mắm Cần Thơ',
+  'Bánh Xèo 7 Tới Cần Thơ',
+  'Pizza 4Ps Cần Thơ',
+  'Vịt Nấu Chao Thành Giao Cần Thơ',
+  'Quán Hồi Đó Cần Thơ',
+  'Cơm Tấm Thu Vân Cần Thơ',
+  'Bún Mắm 173 Cần Thơ'
+];
+
+const TARGETED_HOTEL_QUERIES = [
+  'Sheraton Can Tho',
+  'Muong Thanh Luxury Can Tho',
+  'TTC Hotel Can Tho',
+  'Ninh Kieu Riverside Hotel',
+  'Victoria Can Tho Resort',
+  'Can Tho Ecolodge',
+  'Legacy Mekong Can Tho'
+];
+
+const DISCOVERY_QUERIES = [
+  { category: 'Cà phê', queries: ['cà phê Cần Thơ', 'cafe đẹp Cần Thơ', 'tiệm trà Cần Thơ', 'trà sữa Cần Thơ'] },
+  { category: 'Quán ăn', queries: ['lẩu mắm Cần Thơ', 'bánh xèo Cần Thơ', 'hủ tiếu Cần Thơ', 'nem nướng Cần Thơ', 'cơm tấm Cần Thơ', 'vịt nấu chao Cần Thơ', 'bún mắm Cần Thơ', 'lẩu dê Cần Thơ', 'hải sản Cần Thơ'] },
+  { category: 'Nhà hàng', queries: ['nhà hàng ngon Cần Thơ', 'nhà hàng ven sông Cần Thơ', 'nhà hàng chay Cần Thơ', 'buffet Cần Thơ'] },
+  { category: 'Điểm tham quan', queries: ['chùa Cần Thơ', 'khu du lịch sinh thái Cần Thơ', 'điểm check-in Cần Thơ'] },
+  { category: 'Công viên', queries: ['công viên Cần Thơ'] }
 ];
 
 async function main() {
@@ -278,18 +304,121 @@ async function main() {
 
   let newPlacesCount = 0;
 
-  const fallbacks = {
-    'Khách sạn': 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200',
-    'Nhà hàng': 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200',
-    'Quán ăn': 'https://images.unsplash.com/photo-1541832676-9b763b0239ab?w=1200',
-    'Cà phê': 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=1200',
-    'Trung tâm thương mại': 'https://images.unsplash.com/photo-1569058242253-92a9c755a0ec?w=1200',
-    'Công viên': 'https://images.unsplash.com/photo-1519331379826-f10be5486c6f?w=1200',
-    'Điểm tham quan': 'https://images.unsplash.com/photo-1528127269322-539801943592?w=1200'
-  };
+  // Reusable import function for queries
+  async function importByQueries(queries, categoryName, defaultOpen = "08:00", defaultClose = "22:00") {
+    const categoryId = categoryMap.get(categoryName);
+    if (!categoryId) return;
+
+    console.log(`\n--------------------------------------------------`);
+    console.log(`Searching and importing for category: ${categoryName}`);
+    console.log(`--------------------------------------------------`);
+
+    for (const q of queries) {
+      console.log(`Querying: "${q}"...`);
+      try {
+        const places = await fetchTripAdvisor('locations/search', {
+          query: q,
+          location_id: '303942',
+          limit: '10',
+          lang: 'vi_VN'
+        });
+
+        for (const item of places) {
+          const obj = item.result_object || item;
+          if (!obj || item.result_type === 'geos') continue;
+
+          const name = obj.name;
+          const lat = obj.latitude ? parseFloat(obj.latitude) : null;
+          const lon = obj.longitude ? parseFloat(obj.longitude) : null;
+          
+          // No placeholder images
+          let mainPhoto = obj.photo?.images?.original?.url || "";
+
+          if (!name || !lat || !lon || isJunkPlace(name, obj.address)) continue;
+
+          // Bounding box filter for Cần Thơ
+          if (lat < 9.7 || lat > 10.4 || lon < 105.2 || lon > 106.2) continue;
+
+          if (await isDuplicatePlace(name, lat, lon, categoryId)) {
+            console.log(`  - Skipping duplicate: ${name}`);
+            continue;
+          }
+
+          const externalId = `ta_search_${categoryName.replace(/\s+/g, '_')}_${obj.location_id}`.slice(0, 100);
+          const price = formatPriceToVnd(obj.price, categoryName);
+          const description = generateDescription(name, categoryName);
+          const captions = getPhotoCaptions(name, categoryName);
+          const photoRecords = [];
+          const images = obj.photo?.images || {};
+
+          if (images.original?.url) photoRecords.push({ urlOriginal: images.original.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.original.url.slice(0, 500), caption: captions[0], source: 'TRIPADVISOR' });
+          if (images.large?.url) photoRecords.push({ urlOriginal: images.large.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.large.url.slice(0, 500), caption: captions[1], source: 'TRIPADVISOR' });
+          if (images.medium?.url) photoRecords.push({ urlOriginal: images.medium.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.medium.url.slice(0, 500), caption: captions[2], source: 'TRIPADVISOR' });
+
+          const opHrs = {
+            monday: [defaultOpen, defaultClose],
+            tuesday: [defaultOpen, defaultClose],
+            wednesday: [defaultOpen, defaultClose],
+            thursday: [defaultOpen, defaultClose],
+            friday: [defaultOpen, defaultClose],
+            saturday: [defaultOpen, defaultClose],
+            sunday: [defaultOpen, defaultClose]
+          };
+
+          try {
+            await prisma.place.create({
+              data: {
+                name: name.slice(0, 255),
+                description: description.slice(0, 500),
+                latitude: lat,
+                longitude: lon,
+                address: (obj.address || 'Cần Thơ, Việt Nam').slice(0, 255),
+                price,
+                openingHours: opHrs,
+                categoryId,
+                image: mainPhoto.slice(0, 500),
+                rating: obj.rating ? parseFloat(obj.rating) : 4.5,
+                userRatingCount: obj.num_reviews ? parseInt(obj.num_reviews, 10) : 5,
+                externalId,
+                phone: obj.phone ? String(obj.phone).slice(0, 50) : null,
+                website: obj.website ? String(obj.website).slice(0, 255) : null,
+                priceLevel: obj.price_level ? String(obj.price_level).slice(0, 10) : 'MODERATE',
+                subCategories: obj.subcategory ? obj.subcategory.map(s => s.name).slice(0, 5) : [categoryName],
+                lastSyncedAt: new Date(),
+                photos: { create: photoRecords }
+              }
+            });
+            console.log(`  + [NEW] Imported ${categoryName}: ${name} (Price: ${price})`);
+            newPlacesCount++;
+          } catch (dbErr) {
+            console.error(`  - Failed to write ${categoryName} ${name}:`, dbErr.message);
+          }
+        }
+      } catch (err) {
+        console.error(`Error querying search "${q}":`, err.message);
+      }
+      await sleep(1500);
+    }
+  }
 
   // ====================================================
-  // 1. DENSE COORDINATE SCAN FOR RESTAURANTS, CAFES, EATERIES
+  // 1. RUN TARGETED IMPORTS FOR SPECIFIC MISSING PLACES
+  // ====================================================
+  await importByQueries(TARGETED_MALL_QUERIES, 'Trung tâm thương mại', '09:00', '22:00');
+  await importByQueries(TARGETED_RELIGIOUS_QUERIES, 'Điểm tham quan', '07:00', '21:00');
+  await importByQueries(TARGETED_CAFE_QUERIES, 'Cà phê', '07:00', '22:30');
+  await importByQueries(TARGETED_EATERY_QUERIES, 'Quán ăn', '10:00', '22:00');
+  await importByQueries(TARGETED_HOTEL_QUERIES, 'Khách sạn', '00:00', '23:59');
+
+  // ====================================================
+  // 1.5 RUN DISCOVERY QUERIES FOR MASSIVE PLACE POPULATION
+  // ====================================================
+  for (const group of DISCOVERY_QUERIES) {
+    await importByQueries(group.queries, group.category, '08:00', '22:00');
+  }
+
+  // ====================================================
+  // 2. COORDINATE SCAN FOR GENERAL RESTAURANTS, CAFES, EATERIES
   // ====================================================
   for (const center of URBAN_CENTERS) {
     console.log(`\n==================================================`);
@@ -300,7 +429,7 @@ async function main() {
       const list = await fetchTripAdvisor('restaurants/list-by-latlng', {
         latitude: center.lat,
         longitude: center.lon,
-        limit: '1500', // Increased limit for broader coverage
+        limit: '1500',
         lang: 'vi_VN'
       });
 
@@ -308,18 +437,18 @@ async function main() {
         const name = item.name;
         const lat = item.latitude ? parseFloat(item.latitude) : null;
         const lon = item.longitude ? parseFloat(item.longitude) : null;
-        let mainPhoto = item.photo?.images?.original?.url;
+        
+        // No placeholder images
+        let mainPhoto = item.photo?.images?.original?.url || "";
 
         if (!name || !lat || !lon || isJunkPlace(name, item.address)) {
           continue;
         }
 
-        // Must be in Cần Thơ bounding box
         if (lat < 9.7 || lat > 10.4 || lon < 105.2 || lon > 106.2) {
           continue;
         }
 
-        // Classification
         let categoryName = 'Nhà hàng';
         const cleanName = name.toLowerCase();
 
@@ -335,19 +464,13 @@ async function main() {
         const categoryId = categoryMap.get(categoryName);
         if (!categoryId) continue;
 
-        // Skip duplicates
         if (await isDuplicatePlace(name, lat, lon, categoryId)) {
           continue;
-        }
-
-        if (!mainPhoto) {
-          mainPhoto = fallbacks[categoryName];
         }
 
         const externalId = `ta_rest_${item.location_id}`.slice(0, 100);
         const price = formatPriceToVnd(item.price, categoryName);
         const description = generateDescription(name, categoryName);
-
         const captions = getPhotoCaptions(name, categoryName);
         const photoRecords = [];
         const images = item.photo?.images || {};
@@ -356,14 +479,15 @@ async function main() {
         if (images.large?.url) photoRecords.push({ urlOriginal: images.large.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.large.url.slice(0, 500), caption: captions[1], source: 'TRIPADVISOR' });
         if (images.medium?.url) photoRecords.push({ urlOriginal: images.medium.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.medium.url.slice(0, 500), caption: captions[2], source: 'TRIPADVISOR' });
 
-        if (photoRecords.length === 0) {
-          photoRecords.push({
-            urlOriginal: mainPhoto,
-            urlThumbnail: mainPhoto,
-            caption: captions[0],
-            source: 'FALLBACK'
-          });
-        }
+        const opHrs = {
+          monday: ["08:00", "22:00"],
+          tuesday: ["08:00", "22:00"],
+          wednesday: ["08:00", "22:00"],
+          thursday: ["08:00", "22:00"],
+          friday: ["08:00", "22:00"],
+          saturday: ["08:00", "22:00"],
+          sunday: ["08:00", "22:00"]
+        };
 
         try {
           await prisma.place.create({
@@ -374,8 +498,7 @@ async function main() {
               longitude: lon,
               address: (item.address || 'Cần Thơ, Việt Nam').slice(0, 255),
               price,
-              openTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
-              closeTime: new Date(Date.UTC(1970, 0, 1, 22, 0, 0)),
+              openingHours: opHrs,
               categoryId,
               image: mainPhoto.slice(0, 500),
               rating: item.rating ? parseFloat(item.rating) : 4.0,
@@ -386,7 +509,7 @@ async function main() {
               priceLevel: item.price_level ? String(item.price_level).slice(0, 10) : 'MODERATE',
               subCategories: item.cuisine ? item.cuisine.map(c => c.name).slice(0, 5) : ['Máy lạnh', 'Wifi miễn phí'],
               lastSyncedAt: new Date(),
-              PlacePhoto: {
+              photos: {
                 create: photoRecords
               }
             }
@@ -404,17 +527,17 @@ async function main() {
     await sleep(1500);
 
     // ====================================================
-    // 2. DENSE COORDINATE SCAN FOR ATTRACTIONS, CHURCHES, PARKS
+    // 3. COORDINATE SCAN FOR GENERAL ATTRACTIONS, PARKS
     // ====================================================
     console.log(`\n==================================================`);
-    console.log(`Scanning Attractions / Churches / Parks in: ${center.name}`);
+    console.log(`Scanning Attractions / Parks in: ${center.name}`);
     console.log(`==================================================`);
 
     try {
       const attractions = await fetchTripAdvisor('attractions/list-by-latlng', {
         latitude: center.lat,
         longitude: center.lon,
-        limit: '100', // Query a massive list
+        limit: '100',
         lang: 'vi_VN'
       });
 
@@ -422,18 +545,18 @@ async function main() {
         const name = item.name;
         const lat = item.latitude ? parseFloat(item.latitude) : null;
         const lon = item.longitude ? parseFloat(item.longitude) : null;
-        let mainPhoto = item.photo?.images?.original?.url || fallbacks['Điểm tham quan'];
+        
+        // No placeholder images
+        let mainPhoto = item.photo?.images?.original?.url || "";
 
         if (!name || !lat || !lon || isJunkPlace(name, item.address)) {
           continue;
         }
 
-        // Must be in Cần Thơ bounding box
         if (lat < 9.7 || lat > 10.4 || lon < 105.2 || lon > 106.2) {
           continue;
         }
 
-        // Classification
         let categoryName = 'Điểm tham quan';
         const cleanName = name.toLowerCase();
         const subcats = item.subcategory ? item.subcategory.map(s => s.name.toLowerCase()) : [];
@@ -450,19 +573,13 @@ async function main() {
         const categoryId = categoryMap.get(categoryName);
         if (!categoryId) continue;
 
-        // Skip duplicates
         if (await isDuplicatePlace(name, lat, lon, categoryId)) {
           continue;
-        }
-
-        if (mainPhoto === fallbacks['Điểm tham quan'] && fallbacks[categoryName]) {
-          mainPhoto = fallbacks[categoryName];
         }
 
         const externalId = `ta_attr_${item.location_id}`.slice(0, 100);
         const price = formatPriceToVnd(item.price, categoryName);
         const description = generateDescription(name, categoryName);
-
         const captions = getPhotoCaptions(name, categoryName);
         const photoRecords = [];
         const images = item.photo?.images || {};
@@ -471,14 +588,15 @@ async function main() {
         if (images.large?.url) photoRecords.push({ urlOriginal: images.large.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.large.url.slice(0, 500), caption: captions[1], source: 'TRIPADVISOR' });
         if (images.medium?.url) photoRecords.push({ urlOriginal: images.medium.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.medium.url.slice(0, 500), caption: captions[2], source: 'TRIPADVISOR' });
 
-        if (photoRecords.length === 0) {
-          photoRecords.push({
-            urlOriginal: mainPhoto,
-            urlThumbnail: mainPhoto,
-            caption: captions[0],
-            source: 'FALLBACK'
-          });
-        }
+        const opHrs = {
+          monday: ["07:00", "21:00"],
+          tuesday: ["07:00", "21:00"],
+          wednesday: ["07:00", "21:00"],
+          thursday: ["07:00", "21:00"],
+          friday: ["07:00", "21:00"],
+          saturday: ["07:00", "21:00"],
+          sunday: ["07:00", "21:00"]
+        };
 
         try {
           await prisma.place.create({
@@ -489,8 +607,7 @@ async function main() {
               longitude: lon,
               address: (item.address || 'Cần Thơ, Việt Nam').slice(0, 255),
               price,
-              openTime: new Date(Date.UTC(1970, 0, 1, 7, 0, 0)),
-              closeTime: new Date(Date.UTC(1970, 0, 1, 21, 0, 0)),
+              openingHours: opHrs,
               categoryId,
               image: mainPhoto.slice(0, 500),
               rating: item.rating ? parseFloat(item.rating) : 4.5,
@@ -501,7 +618,7 @@ async function main() {
               priceLevel: 'FREE',
               subCategories: item.subcategory ? item.subcategory.map(s => s.name).slice(0, 5) : ['Điểm tham quan', 'Chụp ảnh'],
               lastSyncedAt: new Date(),
-              PlacePhoto: {
+              photos: {
                 create: photoRecords
               }
             }
@@ -518,255 +635,6 @@ async function main() {
 
     await sleep(1500);
   }
-
-  // ====================================================
-  // 3. TARGETED HOTEL KEYWORD SEARCH
-  // ====================================================
-  console.log(`\n==================================================`);
-  console.log('Searching Hotels / Lodging via Keyword Search');
-  console.log('==================================================');
-  for (const q of HOTEL_QUERIES) {
-    try {
-      const hotels = await fetchTripAdvisor('locations/search', {
-        query: q,
-        limit: '30',
-        lang: 'vi_VN'
-      });
-
-      const categoryId = categoryMap.get('Khách sạn');
-      if (categoryId) {
-        for (const item of hotels) {
-          if (item.result_type !== 'lodging') continue;
-
-          const obj = item.result_object;
-          const name = obj.name;
-          const lat = obj.latitude ? parseFloat(obj.latitude) : null;
-          const lon = obj.longitude ? parseFloat(obj.longitude) : null;
-          let mainPhoto = obj.photo?.images?.original?.url || fallbacks['Khách sạn'];
-
-          if (!name || !lat || !lon || isJunkPlace(name, obj.address)) {
-            continue;
-          }
-
-          if (lat < 9.7 || lat > 10.4 || lon < 105.2 || lon > 106.2) {
-            continue;
-          }
-
-          if (await isDuplicatePlace(name, lat, lon, categoryId)) {
-            continue;
-          }
-
-          const externalId = `ta_hotel_${obj.location_id}`.slice(0, 100);
-          const price = formatPriceToVnd(obj.price, 'Khách sạn');
-          const description = generateDescription(name, 'Khách sạn');
-
-          const captions = getPhotoCaptions(name, 'Khách sạn');
-          const photoRecords = [];
-          const images = obj.photo?.images || {};
-
-          if (images.original?.url) photoRecords.push({ urlOriginal: images.original.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.original.url.slice(0, 500), caption: captions[0], source: 'TRIPADVISOR' });
-          if (images.large?.url) photoRecords.push({ urlOriginal: images.large.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.large.url.slice(0, 500), caption: captions[1], source: 'TRIPADVISOR' });
-          if (images.medium?.url) photoRecords.push({ urlOriginal: images.medium.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.medium.url.slice(0, 500), caption: captions[2], source: 'TRIPADVISOR' });
-
-          if (photoRecords.length === 0) {
-            photoRecords.push({
-              urlOriginal: fallbacks['Khách sạn'],
-              urlThumbnail: fallbacks['Khách sạn'],
-              caption: captions[0],
-              source: 'FALLBACK'
-            });
-          }
-
-          try {
-            await prisma.place.create({
-              data: {
-                name: name.slice(0, 255),
-                description: description.slice(0, 500),
-                latitude: lat,
-                longitude: lon,
-                address: (obj.address || 'Cần Thơ, Việt Nam').slice(0, 255),
-                price,
-                openTime: new Date(Date.UTC(1970, 0, 1, 0, 0, 0)),
-                closeTime: new Date(Date.UTC(1970, 0, 1, 23, 59, 0)),
-                categoryId,
-                image: mainPhoto.slice(0, 500),
-                rating: obj.rating ? parseFloat(obj.rating) : 4.0,
-                userRatingCount: obj.num_reviews ? parseInt(obj.num_reviews, 10) : 5,
-                externalId,
-                phone: obj.phone ? String(obj.phone).slice(0, 50) : null,
-                website: obj.website ? String(obj.website).slice(0, 255) : null,
-                priceLevel: 'MODERATE',
-                subCategories: ['Wifi miễn phí', 'Máy lạnh', 'Phục vụ chu đáo'],
-                lastSyncedAt: new Date(),
-                PlacePhoto: {
-                  create: photoRecords
-                }
-              }
-            });
-            console.log(`  + [NEW] Imported Khách sạn: ${name} (Price: ${price})`);
-            newPlacesCount++;
-          } catch (dbErr) {
-            console.error(`  - Failed to write hotel ${name}:`, dbErr.message);
-          }
-        }
-      }
-    } catch (err) {
-      console.error(`Error querying hotel search "${q}":`, err.message);
-    }
-
-    await sleep(1500);
-  }
-
-    // ---------------------------------------------------
-    // 4. SEARCH FOR CHURCHES / PAGODAS / TEMPLES via Keyword Search
-    // ---------------------------------------------------
-    console.log(`\n==================================================`);
-    console.log('Searching Churches / Pagodas via Keyword Search');
-    console.log('==================================================');
-    const churchCategoryId = categoryMap.get('Điểm tham quan');
-    for (const q of CHURCH_QUERIES) {
-      try {
-        const places = await fetchTripAdvisor('locations/search', {
-          query: q,
-          limit: '30',
-          lang: 'vi_VN'
-        });
-        if (churchCategoryId) {
-          for (const item of places) {
-            const obj = item.result_object || item;
-            const name = obj.name;
-            const lat = obj.latitude ? parseFloat(obj.latitude) : null;
-            const lon = obj.longitude ? parseFloat(obj.longitude) : null;
-            let mainPhoto = obj.photo?.images?.original?.url || fallbacks['Điểm tham quan'];
-
-            if (!name || !lat || !lon || isJunkPlace(name, obj.address)) continue;
-            if (lat < 9.7 || lat > 10.4 || lon < 105.2 || lon > 106.2) continue;
-            if (await isDuplicatePlace(name, lat, lon, churchCategoryId)) continue;
-
-            const externalId = `ta_church_${obj.location_id}`.slice(0, 100);
-            const price = formatPriceToVnd(obj.price, 'Điểm tham quan');
-            const description = generateDescription(name, 'Điểm tham quan');
-            const captions = getPhotoCaptions(name, 'Điểm tham quan');
-            const photoRecords = [];
-            const images = obj.photo?.images || {};
-            if (images.original?.url) photoRecords.push({ urlOriginal: images.original.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.original.url.slice(0, 500), caption: captions[0], source: 'TRIPADVISOR' });
-            if (images.large?.url) photoRecords.push({ urlOriginal: images.large.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.large.url.slice(0, 500), caption: captions[1], source: 'TRIPADVISOR' });
-            if (images.medium?.url) photoRecords.push({ urlOriginal: images.medium.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.medium.url.slice(0, 500), caption: captions[2], source: 'TRIPADVISOR' });
-            if (photoRecords.length === 0) {
-              photoRecords.push({
-                urlOriginal: mainPhoto,
-                urlThumbnail: mainPhoto,
-                caption: captions[0],
-                source: 'FALLBACK'
-              });
-            }
-
-            try {
-              await prisma.place.create({
-                data: {
-                  name: name.slice(0, 255),
-                  description: description.slice(0, 500),
-                  latitude: lat,
-                  longitude: lon,
-                  address: (obj.address || 'Cần Thơ, Việt Nam').slice(0, 255),
-                  price,
-                  openTime: new Date(Date.UTC(1970, 0, 1, 7, 0, 0)),
-                  closeTime: new Date(Date.UTC(1970, 0, 1, 21, 0, 0)),
-                  categoryId: churchCategoryId,
-                  image: mainPhoto.slice(0, 500),
-                  rating: obj.rating ? parseFloat(obj.rating) : 4.5,
-                  userRatingCount: obj.num_reviews ? parseInt(obj.num_reviews, 10) : 5,
-                  externalId,
-                  phone: obj.phone ? String(obj.phone).slice(0, 50) : null,
-                  website: obj.website ? String(obj.website).slice(0, 255) : null,
-                  priceLevel: 'FREE',
-                  subCategories: obj.subcategory ? obj.subcategory.map(s => s.name).slice(0, 5) : ['Điểm tham quan', 'Chụp ảnh'],
-                  lastSyncedAt: new Date(),
-                  PlacePhoto: { create: photoRecords }
-                }
-              });
-              console.log(`  + [NEW] Imported Điểm tham quan (church): ${name} (Price: ${price})`);
-              newPlacesCount++;
-            } catch (dbErr) {
-              console.error(`  - Failed to write church ${name}:`, dbErr.message);
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`Error querying church search "${q}":`, err.message);
-      }
-      await sleep(1500);
-    }
-
-// ---------------------------------------------------
-// 5. SEARCH FOR FAST‑FOOD CHAINS via Keyword Search
-// ---------------------------------------------------
-console.log(`\n==================================================`);
-console.log('Searching Fast‑Food Chains via Keyword Search');
-console.log('==================================================');
-const fastFoodCategoryId = categoryMap.get('Nhà hàng');
-for (const q of FAST_FOOD_QUERIES) {
-  try {
-    const places = await fetchTripAdvisor('locations/search', { query: q, limit: '30', lang: 'vi_VN' });
-    if (fastFoodCategoryId) {
-      for (const item of places) {
-        const obj = item.result_object || item;
-        const name = obj.name;
-        const lat = obj.latitude ? parseFloat(obj.latitude) : null;
-        const lon = obj.longitude ? parseFloat(obj.longitude) : null;
-        let mainPhoto = obj.photo?.images?.original?.url || fallbacks['Nhà hàng'];
-        if (!name || !lat || !lon || isJunkPlace(name, obj.address)) continue;
-        if (lat < 9.7 || lat > 10.4 || lon < 105.2 || lon > 106.2) continue;
-        if (await isDuplicatePlace(name, lat, lon, fastFoodCategoryId)) continue;
-        const externalId = `ta_fastfood_${obj.location_id}`.slice(0, 100);
-        const price = formatPriceToVnd(obj.price, 'Nhà hàng');
-        const description = generateDescription(name, 'Nhà hàng');
-        const captions = getPhotoCaptions(name, 'Nhà hàng');
-        const photoRecords = [];
-        const images = obj.photo?.images || {};
-        if (images.original?.url) photoRecords.push({ urlOriginal: images.original.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.original.url.slice(0, 500), caption: captions[0], source: 'TRIPADVISOR' });
-        if (images.large?.url) photoRecords.push({ urlOriginal: images.large.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.large.url.slice(0, 500), caption: captions[1], source: 'TRIPADVISOR' });
-        if (images.medium?.url) photoRecords.push({ urlOriginal: images.medium.url.slice(0, 500), urlThumbnail: images.small?.url?.slice(0, 500) || images.medium.url.slice(0, 500), caption: captions[2], source: 'TRIPADVISOR' });
-        if (photoRecords.length === 0) {
-          photoRecords.push({ urlOriginal: mainPhoto, urlThumbnail: mainPhoto, caption: captions[0], source: 'FALLBACK' });
-        }
-        try {
-          await prisma.place.create({
-            data: {
-              name: name.slice(0, 255),
-              description: description.slice(0, 500),
-              latitude: lat,
-              longitude: lon,
-              address: (obj.address || 'Cần Thơ, Việt Nam').slice(0, 255),
-              price,
-              openTime: new Date(Date.UTC(1970, 0, 1, 8, 0, 0)),
-              closeTime: new Date(Date.UTC(1970, 0, 1, 22, 0, 0)),
-              categoryId: fastFoodCategoryId,
-              image: mainPhoto.slice(0, 500),
-              rating: obj.rating ? parseFloat(obj.rating) : 4.0,
-              userRatingCount: obj.num_reviews ? parseInt(obj.num_reviews, 10) : 5,
-              externalId,
-              phone: obj.phone ? String(obj.phone).slice(0, 50) : null,
-              website: obj.website ? String(obj.website).slice(0, 255) : null,
-              priceLevel: obj.price_level ? String(obj.price_level).slice(0, 10) : 'MODERATE',
-              subCategories: obj.cuisine ? obj.cuisine.map(c => c.name).slice(0, 5) : ['WiFi', 'Parking'],
-              lastSyncedAt: new Date(),
-              PlacePhoto: { create: photoRecords }
-            }
-          });
-          console.log(`  + [NEW] Imported Fast‑Food: ${name} (Price: ${price})`);
-          newPlacesCount++;
-        } catch (dbErr) {
-          console.error(`  - Failed to write fast‑food ${name}:`, dbErr.message);
-        }
-      }
-    }
-  } catch (err) {
-    console.error(`Error querying fast‑food search "${q}":`, err.message);
-  }
-  await sleep(1500);
-}
-
 
   console.log(`\nIncremental scan complete!`);
   console.log(`Total new unique Cần Thơ places added to the database: ${newPlacesCount}`);

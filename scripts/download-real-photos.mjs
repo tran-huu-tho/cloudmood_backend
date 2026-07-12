@@ -1,22 +1,17 @@
 import 'dotenv/config';
 import { prisma } from './prisma-client.mjs';
 import { v2 as cloudinary } from 'cloudinary';
+import { fetchWithKeyRotation } from './api-key-manager.mjs';
 
 // Configure Cloudinary
 const {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
-  CLOUDINARY_API_SECRET,
-  RAPIDAPI_KEY
+  CLOUDINARY_API_SECRET
 } = process.env;
 
 if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
   console.error('Error: Cloudinary credentials missing in .env');
-  process.exit(1);
-}
-
-if (!RAPIDAPI_KEY) {
-  console.error('Error: RAPIDAPI_KEY is missing in .env');
   process.exit(1);
 }
 
@@ -51,12 +46,11 @@ function uploadImageBuffer(buffer) {
 // Search place on Google Maps
 async function searchGooglePlace(query) {
   const url = `https://${GOOGLE_HOST}/v1/places:searchText`;
-  const res = await fetch(url, {
+  const res = await fetchWithKeyRotation(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.photos',
-      'x-rapidapi-key': RAPIDAPI_KEY,
       'x-rapidapi-host': GOOGLE_HOST
     },
     body: JSON.stringify({
@@ -80,10 +74,9 @@ async function downloadGooglePhoto(photoName) {
   url.searchParams.set('maxWidthPx', '800');
   url.searchParams.set('skipHttpRedirect', 'false');
 
-  const res = await fetch(url, {
+  const res = await fetchWithKeyRotation(url, {
     method: 'GET',
     headers: {
-      'x-rapidapi-key': RAPIDAPI_KEY,
       'x-rapidapi-host': GOOGLE_HOST
     }
   });

@@ -4,21 +4,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prisma } from './prisma-client.mjs';
 import { v2 as cloudinary } from 'cloudinary';
+import { fetchWithKeyRotation } from './api-key-manager.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(__dirname, 'import-places-rapidapi-state.json');
 
 // Verify Env Vars
 const {
-  RAPIDAPI_KEY,
   RAPIDAPI_HOST,
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET
 } = process.env;
 
-if (!RAPIDAPI_KEY || !RAPIDAPI_HOST) {
-  console.error('Error: RAPIDAPI_KEY or RAPIDAPI_HOST is missing in .env');
+if (!RAPIDAPI_HOST) {
+  console.error('Error: RAPIDAPI_HOST is missing in .env');
   process.exit(1);
 }
 
@@ -98,20 +98,16 @@ async function searchPlaces(query) {
     }
 
     console.log(`    Fetching page ${pageCount + 1}...`);
-    const res = await fetch(url, {
+    const res = await fetchWithKeyRotation(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.photos,nextPageToken',
-        'x-rapidapi-key': RAPIDAPI_KEY,
         'x-rapidapi-host': RAPIDAPI_HOST
       },
       body: JSON.stringify(body)
     });
 
-    if (res.status === 429) {
-      throw new Error('QUOTA_EXCEEDED');
-    }
     if (!res.ok) {
       throw new Error(`RapidAPI TextSearch error ${res.status}: ${await res.text()}`);
     }
@@ -138,18 +134,14 @@ async function searchPlaces(query) {
 async function getPlaceDetails(placeId) {
   const url = new URL(`https://google-map-places-new-v2.p.rapidapi.com/v1/places/${placeId}`);
 
-  const res = await fetch(url, {
+  const res = await fetchWithKeyRotation(url, {
     method: 'GET',
     headers: {
       'X-Goog-FieldMask': 'reviews,regularOpeningHours,nationalPhoneNumber,websiteUri,priceLevel',
-      'x-rapidapi-key': RAPIDAPI_KEY,
       'x-rapidapi-host': RAPIDAPI_HOST
     }
   });
 
-  if (res.status === 429) {
-    throw new Error('QUOTA_EXCEEDED');
-  }
   if (!res.ok) {
     throw new Error(`RapidAPI PlaceDetails error ${res.status}: ${await res.text()}`);
   }
@@ -165,17 +157,13 @@ async function getPlacePhotoBuffer(photoName) {
   url.searchParams.set('maxWidthPx', '800');
   url.searchParams.set('skipHttpRedirect', 'false');
 
-  const res = await fetch(url, {
+  const res = await fetchWithKeyRotation(url, {
     method: 'GET',
     headers: {
-      'x-rapidapi-key': RAPIDAPI_KEY,
       'x-rapidapi-host': RAPIDAPI_HOST
     }
   });
 
-  if (res.status === 429) {
-    throw new Error('QUOTA_EXCEEDED');
-  }
   if (!res.ok) {
     throw new Error(`RapidAPI PlacePhoto error ${res.status}: ${await res.text()}`);
   }
@@ -302,17 +290,15 @@ async function main() {
         }
 
         // Parse open/close hours from detail, or fallback to default
-        let openTime = timeOnly(8, 0);
-        let closeTime = timeOnly(22, 0);
+        let openingHours = { open: "08:00", close: "22:00" };
         if (detail.regularOpeningHours && detail.regularOpeningHours.periods && detail.regularOpeningHours.periods.length > 0) {
           const firstPeriod = detail.regularOpeningHours.periods[0];
           if (firstPeriod.open && firstPeriod.close) {
-            const oh = firstPeriod.open.hour ?? 8;
-            const om = firstPeriod.open.minute ?? 0;
-            const ch = firstPeriod.close.hour ?? 22;
-            const cm = firstPeriod.close.minute ?? 0;
-            openTime = timeOnly(oh, om);
-            closeTime = timeOnly(ch === 0 ? 23 : ch, ch === 0 ? 59 : cm);
+            const oh = String(firstPeriod.open.hour ?? 8).padStart(2, '0');
+            const om = String(firstPeriod.open.minute ?? 0).padStart(2, '0');
+            const ch = String(firstPeriod.close.hour ?? 22).padStart(2, '0');
+            const cm = String(firstPeriod.close.minute ?? 0).padStart(2, '0');
+            openingHours = { open: `${oh}:${om}`, close: `${ch}:${cm}` };
           }
         }
 
@@ -326,8 +312,7 @@ async function main() {
               longitude: place.location.longitude,
               address: (place.formattedAddress || '').slice(0, 255),
               price: 'Đang cập nhật',
-              openTime,
-              closeTime,
+              openingHours,
               categoryId: category.id,
               image: imageUrl,
               rating: place.rating,
@@ -338,7 +323,7 @@ async function main() {
               priceLevel: detail.priceLevel || null,
               subCategories: [],
               lastSyncedAt: new Date(),
-              PlacePhoto: {
+              photos: {
                 create: uploadedPhotos
               }
             }

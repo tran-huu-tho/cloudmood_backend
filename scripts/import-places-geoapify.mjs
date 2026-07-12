@@ -123,9 +123,9 @@ function parseOpeningHours(openingHoursStr) {
     }
   }
 
-  const openTime = new Date(Date.UTC(1970, 0, 1, openH, openM, 0));
-  const closeTime = new Date(Date.UTC(1970, 0, 1, closeH === 0 ? 23 : closeH, closeH === 0 ? 59 : closeM, 0));
-  return { openTime, closeTime };
+  const openStr = `${String(openH).padStart(2, '0')}:${String(openM).padStart(2, '0')}`;
+  const closeStr = `${String(closeH).padStart(2, '0')}:${String(closeM).padStart(2, '0')}`;
+  return { openingHours: { open: openStr, close: closeStr } };
 }
 
 // Validate if Place Name or Address is generic/junk
@@ -264,7 +264,7 @@ async function main() {
         let phone = props.contact?.phone || props.datasource?.raw?.phone || null;
         if (phone) phone = String(phone);
         const website = props.website || props.datasource?.raw?.website || null;
-        const { openTime, closeTime } = parseOpeningHours(props.opening_hours || props.datasource?.raw?.opening_hours);
+        const { openingHours } = parseOpeningHours(props.opening_hours || props.datasource?.raw?.opening_hours);
 
         // Price Level
         let priceLevel = 'MODERATE';
@@ -300,8 +300,7 @@ async function main() {
               longitude: lon,
               address: address.slice(0, 255),
               price: 'Đang cập nhật',
-              openTime,
-              closeTime,
+              openingHours,
               categoryId,
               image: mainImage,
               rating: props.stars ? parseFloat(props.stars) : (4.0 + Math.random() * 1.0),
@@ -312,7 +311,7 @@ async function main() {
               priceLevel,
               subCategories: amenities,
               lastSyncedAt: new Date(),
-              PlacePhoto: {
+              photos: {
                 create: selectedPhotos
               }
             }
