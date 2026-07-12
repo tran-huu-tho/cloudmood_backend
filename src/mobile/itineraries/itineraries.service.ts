@@ -222,4 +222,56 @@ export class ItinerariesService {
       where: { itineraryId: BigInt(itineraryId), name },
     });
   }
+
+  async getChecklistTemplates() {
+    let categories = await this.prisma.checklistTemplateCategory.findMany({
+      include: {
+        items: true,
+      },
+    });
+
+    if (categories.length === 0) {
+      // Seed some default templates if empty
+      const packingCat = await this.prisma.checklistTemplateCategory.create({
+        data: { name: 'Đồ dùng cá nhân', tabType: 'PACKING' }
+      });
+      await this.prisma.checklistTemplateItem.createMany({
+        data: [
+          { categoryId: packingCat.id, name: 'Bàn chải & Kem đánh răng' },
+          { categoryId: packingCat.id, name: 'Quần áo dự phòng' },
+          { categoryId: packingCat.id, name: 'Sạc điện thoại / Sạc dự phòng' },
+          { categoryId: packingCat.id, name: 'Đồ lót' },
+          { categoryId: packingCat.id, name: 'Khăn tắm' },
+        ]
+      });
+
+      const prepCat = await this.prisma.checklistTemplateCategory.create({
+        data: { name: 'Giấy tờ & Thủ tục', tabType: 'PRE_TRIP' }
+      });
+      await this.prisma.checklistTemplateItem.createMany({
+        data: [
+          { categoryId: prepCat.id, name: 'Hộ chiếu / CCCD' },
+          { categoryId: prepCat.id, name: 'Vé máy bay / Xe' },
+          { categoryId: prepCat.id, name: 'Tiền mặt & Thẻ tín dụng' },
+          { categoryId: prepCat.id, name: 'Xác nhận đặt phòng khách sạn' },
+        ]
+      });
+
+      categories = await this.prisma.checklistTemplateCategory.findMany({
+        include: {
+          items: true,
+        },
+      });
+    }
+
+    return categories.map((cat: any) => ({
+      ...cat,
+      id: Number(cat.id),
+      items: cat.items.map((item: any) => ({
+        ...item,
+        id: Number(item.id),
+        categoryId: Number(item.categoryId),
+      })),
+    }));
+  }
 }
