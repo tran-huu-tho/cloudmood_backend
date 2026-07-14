@@ -9,6 +9,7 @@ export class WeatherService {
   private readonly logger = new Logger(WeatherService.name);
   private readonly apiKey: string;
   private readonly aiApiKeys: string[];
+  private recommendationsCache = new Map<string, { suggestions: any; updatedTime: number }>();
 
   constructor(
     private prisma: PrismaService,
@@ -404,7 +405,14 @@ export class WeatherService {
   private async formatWeatherResponse(record: any) {
     const raw = record.rawResponse as any;
     const rainfall = raw?.rain?.['1h'] || raw?.rain?.['3h'] || 0;
-    const suggestions = await this.getRecommendations(record.condition, record.temp, record.humidity, record.windSpeed, record.cityName);
+    const suggestions = await this.getRecommendations(
+      record.condition,
+      record.temp,
+      record.humidity,
+      record.windSpeed,
+      record.cityName,
+      record.updatedAt
+    );
     return {
       cityName: record.cityName,
       latitude: record.latitude,
@@ -428,7 +436,14 @@ export class WeatherService {
     const condition = data.weather[0].main;
     const temp = data.main.temp;
     const rainfall = data.rain?.['1h'] || data.rain?.['3h'] || 0;
-    const suggestions = await this.getRecommendations(condition, temp, data.main.humidity, data.wind.speed, data.name);
+    const suggestions = await this.getRecommendations(
+      condition,
+      temp,
+      data.main.humidity,
+      data.wind.speed,
+      data.name,
+      new Date()
+    );
     return {
       cityName: data.name,
       latitude: data.coord.lat,
@@ -445,7 +460,22 @@ export class WeatherService {
     };
   }
 
-  private async getRecommendations(condition: string, temp: number, humidity: number, windSpeed: number, cityName: string) {
+  private async getRecommendations(
+    condition: string,
+    temp: number,
+    humidity: number,
+    windSpeed: number,
+    cityName: string,
+    updatedAt?: Date
+  ) {
+    const cacheKey = cityName.toLowerCase();
+    const cached = this.recommendationsCache.get(cacheKey);
+    const recordTime = updatedAt ? new Date(updatedAt).getTime() : Date.now();
+
+    if (cached && cached.updatedTime === recordTime) {
+      return cached.suggestions;
+    }
+
     const ruleBased = this.getRuleBasedSuggestions(condition, temp, cityName);
     
     // Default rain forecasting logic
@@ -473,11 +503,17 @@ export class WeatherService {
       rainForecast: defaultRainForecast,
     };
     
+    let result: any = {
+      source: 'Hệ thống định tuyến (Rule-based)',
+      ...defaultRain,
+      ...ruleBased,
+    };
+
     if (this.aiApiKeys.length > 0) {
       try {
         const aiSuggestions = await this.getAISuggestions(condition, temp, humidity, windSpeed, ruleBased);
         if (aiSuggestions) {
-          return {
+          result = {
             source: 'CloudBros AI',
             ...defaultRain,
             ...aiSuggestions,
@@ -488,11 +524,12 @@ export class WeatherService {
       }
     }
 
-    return {
-      source: 'Hệ thống định tuyến (Rule-based)',
-      ...defaultRain,
-      ...ruleBased,
-    };
+    this.recommendationsCache.set(cacheKey, {
+      suggestions: result,
+      updatedTime: recordTime
+    });
+
+    return result;
   }
 
   /**

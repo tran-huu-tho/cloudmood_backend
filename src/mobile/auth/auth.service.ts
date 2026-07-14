@@ -30,7 +30,7 @@ export class AuthService {
         fullName: data.fullName,
         email: data.email,
         password: hashedPassword,
-        avatar: data.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+        avatar: data.avatarUrl || '/default-avatar.jpg',
         createdAt: new Date(),
         role: false,
       },

@@ -8,6 +8,7 @@ import { ReviewsModule } from './mobile/reviews/reviews.module';
 import { CategoriesModule } from './mobile/categories/categories.module';
 import { WeatherModule } from './shared/weather/weather.module';
 import { NotificationsModule } from './shared/notifications/notifications.module';
+import { AdminAiModule } from './admin/ai/ai.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { NotificationsModule } from './shared/notifications/notifications.module
     WeatherModule,
     CategoriesModule,
     NotificationsModule,
+    AdminAiModule,
   ],
   controllers: [],
   providers: [],

@@ -164,6 +164,7 @@ export class AiService {
             categoryStats: categories.map((c) => ({
               name: c.name,
               count: c._count.places,
+              iconCode: c.iconCode,
             })),
           };
         }
