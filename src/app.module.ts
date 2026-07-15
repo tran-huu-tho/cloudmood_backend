@@ -9,6 +9,7 @@ import { CategoriesModule } from './mobile/categories/categories.module';
 import { WeatherModule } from './shared/weather/weather.module';
 import { NotificationsModule } from './shared/notifications/notifications.module';
 import { AdminAiModule } from './admin/ai/ai.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AdminAiModule } from './admin/ai/ai.module';
     CategoriesModule,
     NotificationsModule,
     AdminAiModule,
+    AdminModule,
   ],
   controllers: [],
   providers: [],

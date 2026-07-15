@@ -15,6 +15,7 @@ model User {
   avatar    String?
   role      Boolean  @default(true)
   createdAt DateTime @db.Date
+  isBlocked Boolean? @default(false)
 
   reviews      Review[]
   itineraries  Itinerary[]

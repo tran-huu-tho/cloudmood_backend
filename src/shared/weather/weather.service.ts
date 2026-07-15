@@ -476,53 +476,91 @@ export class WeatherService {
       return cached.suggestions;
     }
 
-    const ruleBased = this.getRuleBasedSuggestions(condition, temp, cityName);
+    const ruleBased = this.getRuleBasedSuggestions(condition, temp, humidity, windSpeed, cityName);
     
-    // Default rain forecasting logic
+    // Detailed dynamic rain forecasting logic based on condition, humidity, and windSpeed
     const condLower = condition.toLowerCase();
-    let defaultRainProb = 0;
-    let defaultRainEst = 0;
-    let defaultRainForecast = 'Không có dấu hiệu mưa.';
+    let rainProbability = 0;
+    let estimatedRainfall = 0.0;
+    let rainForecast = 'Thời tiết khô ráo, không có khả năng mưa.';
 
-    if (condLower.includes('rain') || condLower.includes('drizzle')) {
-      defaultRainProb = 90;
-      defaultRainEst = 5.0;
-      defaultRainForecast = 'Hiện tại đang có mưa, lượng mưa vừa phải.';
-    } else if (condLower.includes('thunderstorm')) {
-      defaultRainProb = 95;
-      defaultRainEst = 12.0;
-      defaultRainForecast = 'Thời tiết dông bão có mưa lớn và gió giật mạnh.';
+    if (condLower.includes('thunderstorm')) {
+      rainProbability = Math.min(100, 95 + Math.round(windSpeed));
+      estimatedRainfall = humidity > 85 ? 18.5 : 12.0;
+      rainForecast = `Dự báo dông bão mạnh kèm mưa lớn (lượng mưa ~${estimatedRainfall}mm) và gió giật mạnh. Cần đề phòng sấm sét và ngập úng cục bộ.`;
+    } else if (condLower.includes('rain')) {
+      rainProbability = Math.min(100, 85 + Math.round((humidity - 50) * 0.3));
+      if (condLower.includes('heavy') || condLower.includes('extreme')) {
+        estimatedRainfall = 15.0;
+        rainForecast = `Khả năng cao mưa rất to liên tục (lượng mưa ${estimatedRainfall}mm). Hạn chế đi lại đường xa và cẩn thận ngập úng.`;
+      } else if (condLower.includes('light') || condLower.includes('moderate')) {
+        estimatedRainfall = condLower.includes('light') ? 2.0 : 5.5;
+        rainForecast = `Dự báo có mưa rào nhẹ đến vừa (lượng mưa ${estimatedRainfall}mm). Trời ẩm ướt trơn trượt, hãy mang theo ô dù khi ra ngoài.`;
+      } else {
+        estimatedRainfall = 6.0;
+        rainForecast = `Dự báo có mưa trong ngày với lượng mưa trung bình (~${estimatedRainfall}mm). Vui lòng trang bị áo mưa đầy đủ.`;
+      }
+    } else if (condLower.includes('drizzle')) {
+      rainProbability = Math.min(95, 75 + Math.round((humidity - 60) * 0.2));
+      estimatedRainfall = 1.0;
+      rainForecast = `Có mưa phùn rải rác nhẹ (khoảng ${estimatedRainfall}mm). Trời âm u ẩm ướt nhẹ nhưng không ảnh hưởng nhiều đến lộ trình.`;
     } else if (condLower.includes('clouds')) {
-      defaultRainProb = humidity > 80 ? 40 : 15;
-      defaultRainForecast = humidity > 80 ? 'Trời nhiều mây, độ ẩm cao, có thể có mưa rào rải rác.' : 'Trời nhiều mây rải rác, không mưa.';
+      if (humidity > 88) {
+        rainProbability = 65;
+        estimatedRainfall = 0.5;
+        rainForecast = `Trời nhiều mây đen tích tụ, độ ẩm rất cao (${humidity}%), dễ xuất hiện mưa rào rải rác bất chợt.`;
+      } else if (humidity > 75) {
+        rainProbability = 35;
+        rainForecast = `Trời nhiều mây âm u, độ ẩm khá cao (${humidity}%), chưa có dấu hiệu mưa rõ rệt nhưng bạn nên chuẩn bị ô dù dự phòng.`;
+      } else {
+        rainProbability = 15;
+        rainForecast = `Trời nhiều mây rải rác, thời tiết ráo mát, không có khả năng mưa.`;
+      }
+    } else if (condLower.includes('clear')) {
+      rainProbability = humidity > 85 ? 10 : 5;
+      rainForecast = `Thời tiết hoàn toàn ráo mát, bầu trời quang đãng, không có khả năng mưa. Rất thích hợp cho các hoạt động ngoài trời.`;
+    } else {
+      rainProbability = humidity > 90 ? 25 : 10;
+      rainForecast = `Trời có sương mù hoặc hiện tượng mù nhẹ. Khả năng mưa thấp (${rainProbability}%), tầm nhìn xa khi di chuyển ngoài đường có thể giảm nhẹ.`;
     }
 
     const defaultRain = {
-      rainProbability: defaultRainProb,
-      estimatedRainfall: defaultRainEst,
-      rainForecast: defaultRainForecast,
+      rainProbability,
+      estimatedRainfall,
+      rainForecast,
     };
     
-    let result: any = {
+    let recommendedPlaces: any[] = [];
+    try {
+      const placesFromDb = await this.prisma.place.findMany({
+        where: {
+          category: {
+            name: { in: ruleBased.categories },
+          },
+        },
+        take: 3,
+        include: {
+          category: true,
+        },
+      });
+
+      recommendedPlaces = placesFromDb.map((p) => ({
+        id: Number(p.id),
+        name: p.name,
+        category: p.category.name,
+        address: p.address,
+        reason: `Địa điểm lý tưởng phù hợp cho thời tiết "${condition}" với tâm trạng "${ruleBased.mood}".`,
+      }));
+    } catch (err) {
+      this.logger.warn(`Lỗi lấy địa điểm gợi ý Rule-based: ${err.message}`);
+    }
+
+    const result: any = {
       source: 'Hệ thống định tuyến (Rule-based)',
       ...defaultRain,
       ...ruleBased,
+      places: recommendedPlaces,
     };
-
-    if (this.aiApiKeys.length > 0) {
-      try {
-        const aiSuggestions = await this.getAISuggestions(condition, temp, humidity, windSpeed, ruleBased);
-        if (aiSuggestions) {
-          result = {
-            source: 'CloudBros AI',
-            ...defaultRain,
-            ...aiSuggestions,
-          };
-        }
-      } catch (e) {
-        this.logger.warn(`Lỗi khi gọi AI gợi ý, chuyển về Rule-based: ${e.message}`);
-      }
-    }
 
     this.recommendationsCache.set(cacheKey, {
       suggestions: result,
@@ -535,7 +573,13 @@ export class WeatherService {
   /**
    * Gợi ý dựa trên luật (Rule-based)
    */
-  private getRuleBasedSuggestions(condition: string, temp: number, cityName: string) {
+  private getRuleBasedSuggestions(
+    condition: string,
+    temp: number,
+    humidity: number,
+    windSpeed: number,
+    cityName: string
+  ) {
     const condLower = condition.toLowerCase();
     const cityLower = (cityName || '').toLowerCase();
 
@@ -547,136 +591,119 @@ export class WeatherService {
       'bình thuận', 'binh thuan', 'khánh hòa', 'khanh hoa'
     ].some(keyword => cityLower.includes(keyword));
 
-    // Mặc định
     let mood = 'Thư giãn';
-    let activities = ['Gặp gỡ bạn bè', 'Thưởng thức ẩm thực địa phương'];
-    let categories = ['Café', 'Nhà hàng'];
-    let tips = ['Chúc bạn có một chuyến đi vui vẻ!'];
+    let activities: string[] = [];
+    let categories: string[] = [];
+    let tips: string[] = [];
 
-    // 1. Luật theo trạng thái mưa gió
-    if (condLower.includes('rain') || condLower.includes('thunderstorm') || condLower.includes('drizzle')) {
-      mood = 'Ấm áp & Tránh mưa';
-      activities = ['Tham quan bảo tàng nghệ thuật', 'Thư giãn tại quán café sách', 'Mua sắm tại trung tâm thương mại', 'Xem phim giải trí'];
-      categories = ['Café', 'Bảo tàng', 'Nhà hàng'];
-      tips = ['Đang có mưa lớn. Bạn hãy mang theo ô/áo mưa và ưu tiên hoạt động trong nhà.', 'Hạn chế di chuyển đường dài bằng xe máy.'];
+    // 1. Giông bão / Mưa rất to và gió lớn
+    if (condLower.includes('thunderstorm') || (condLower.includes('rain') && windSpeed > 6)) {
+      mood = 'Tránh bão & An toàn';
+      activities = [
+        'Nghỉ ngơi tại khách sạn và xem phim giải trí',
+        'Thưởng thức lẩu ấm hoặc hải sản ấm nóng tại nhà hàng trong nhà',
+        'Chơi board game, trò chuyện tại quán café ấm cúng',
+        'Thư giãn và đọc sách trong phòng ấm'
+      ];
+      categories = ['Café', 'Nhà hàng'];
+      tips = [
+        'Đang có dông bão mạnh hoặc gió giật lớn ngoài trời. Hạn chế tối đa di chuyển ngoài đường.',
+        'Tuyệt đối tránh đứng gần cây cao, cột điện hoặc các biển quảng cáo lớn đề phòng đổ gãy.',
+        'Nên theo dõi sát sao dự báo thời tiết cục bộ và chuẩn bị sẵn sạc điện thoại dự phòng.'
+      ];
     }
-    // 2. Luật theo trạng thái nắng ráo ngoài trời
-    else if (condLower.includes('clear') || (condLower.includes('clouds') && temp >= 20 && temp <= 30)) {
-      mood = 'Năng động & Khám phá';
-      activities = ['Đi dạo công viên', 'Chụp ảnh check-in danh lam thắng cảnh', 'Tham gia tour đi bộ ngoài trời', 'Khám phá các chợ đêm'];
-      categories = ['Công viên', 'Di tích', 'Khác'];
-      tips = ['Thời tiết rất đẹp cho hoạt động ngoài trời!', 'Nên chuẩn bị kính râm và giày đi bộ thoải mái.'];
+    // 2. Trời mưa / Mưa phùn hoặc ẩm ướt cao
+    else if (condLower.includes('rain') || condLower.includes('drizzle') || humidity > 92) {
+      mood = 'Ấm cúng & Tránh mưa';
+      activities = [
+        'Thưởng thức café ấm áp (café trứng, trà nóng) trong không gian yên tĩnh',
+        'Tham quan bảo tàng lịch sử hoặc các phòng triển lãm nghệ thuật trong nhà',
+        'Mua sắm, ăn uống và vui chơi tại tổ hợp trung tâm thương mại',
+        'Thử sức với các trò chơi giải trí trong nhà (bowling, bắn cung, escape room)'
+      ];
+      categories = ['Café', 'Bảo tàng', 'Nhà hàng', 'Di tích'];
+      tips = [
+        'Thời tiết ẩm ướt và có mưa, hãy nhớ luôn mang theo ô (dù) hoặc áo mưa khi ra ngoài.',
+        'Đường đi trơn trượt nhẹ, ưu tiên di chuyển bằng taxi hoặc xe công nghệ để giữ khô ráo.',
+        'Nhiệt độ phòng máy lạnh ở các điểm tham quan có thể hơi lạnh, nên mang theo áo khoác mỏng.'
+      ];
     }
-    // 3. Luật theo nhiệt độ quá nóng
+    // 3. Trời rét / nhiệt độ lạnh
+    else if (temp < 19) {
+      mood = 'Ấm cúng & Gần gũi';
+      activities = [
+        'Tụ tập ăn đồ nướng xèo xèo hoặc nồi lẩu nóng hổi bốc khói',
+        'Thưởng thức cacao nóng hoặc trà gừng tại quán café gỗ tông ấm',
+        'Dạo phố phường ngắm cảnh trong những bộ trang phục mùa đông dày dặn',
+        'Ghé thăm các di tích lịch sử ngoài trời kết hợp thưởng thức quà vặt ấm nóng'
+      ];
+      categories = ['Nhà hàng', 'Café', 'Di tích'];
+      tips = [
+        'Trời lạnh sâu. Hãy chú ý giữ ấm cơ thể, đặc biệt là vùng cổ, ngực và hai bàn tay.',
+        'Nên uống nước ấm thay vì nước đá để bảo vệ cổ họng và ổn định thân nhiệt.',
+        'Nếu đi dạo muộn sương xuống lạnh, hãy mang theo khăn quàng cổ dày.'
+      ];
+    }
+    // 4. Trời nắng nóng gay gắt
     else if (temp > 32) {
       mood = 'Mát mẻ & Tránh nóng';
-      activities = isCoastal 
-        ? ['Đi tắm biển buổi chiều', 'Vui chơi công viên nước', 'Tránh nóng tại trung tâm thương mại', 'Thưởng thức kem/trà sữa máy lạnh']
-        : ['Tránh nóng tại trung tâm thương mại', 'Vui chơi công viên nước/bể bơi', 'Thư giãn tại quán café máy lạnh', 'Thưởng thức kem/trà sữa mát lạnh'];
-      categories = ['Café', 'Nhà hàng'];
-      tips = ['Nhiệt độ ngoài trời rất cao. Vui lòng bôi kem chống nắng và uống đủ nước.', 'Hạn chế ra đường vào khung giờ 11h - 14h.'];
+      if (isCoastal) {
+        activities = [
+          'Tắm biển giải nhiệt vào thời điểm mát mẻ (sáng sớm hoặc sau 16h30)',
+          'Tham gia các hoạt động vui chơi giải trí mát lạnh tại công viên nước',
+          'Tránh nóng thư giãn tại các trung tâm thương mại hoặc rạp chiếu phim',
+          'Ngồi quán café máy lạnh view biển ngắm hoàng hôn rực rỡ cực chill',
+          'Thưởng thức hải sản tươi ngon kết hợp nước dừa mát lạnh giải nhiệt'
+        ];
+      } else {
+        activities = [
+          'Tránh nóng thư giãn tại các trung tâm thương mại hiện đại rộng lớn',
+          'Đi bơi giải nhiệt tại các hồ bơi công cộng chất lượng cao',
+          'Thư giãn thưởng thức đồ uống tại các quán café máy lạnh không gian xanh mát',
+          'Thưởng thức kem mát lạnh, sinh tố trái cây hoặc trà nhiệt đới giải nhiệt'
+        ];
+      }
+      categories = ['Café', 'Nhà hàng', 'Khác'];
+      tips = [
+        'Chỉ số tia cực tím (UV) ngoài trời ở mức nguy hại. Hãy bôi kem chống nắng đầy đủ trước khi ra ngoài.',
+        'Luôn mang theo nước uống bên mình, mang mũ rộng vành và đeo kính râm chống nắng.',
+        'Hạn chế các hoạt động thể chất trực tiếp dưới ánh nắng gay gắt từ 11h00 đến 15h30.'
+      ];
     }
-    // 4. Luật theo nhiệt độ lạnh
-    else if (temp < 18) {
-      mood = 'Ấm cúng';
-      activities = ['Ăn lẩu nóng hoặc nướng', 'Thưởng thức trà/café nóng', 'Dạo quanh phố phường trang bị áo ấm'];
-      categories = ['Nhà hàng', 'Café'];
-      tips = ['Trời khá lạnh. Hãy nhớ mang theo áo khoác ấm và khăn quàng cổ nhé.'];
+    // 5. Thời tiết lý tưởng (nắng nhẹ mát mẻ)
+    else if (temp >= 19 && temp < 29 && humidity <= 82) {
+      mood = 'Năng động & Khám phá';
+      activities = [
+        'Dã ngoại, cắm trại nhẹ nhàng và chụp ảnh tại các công viên xanh mát',
+        'Đi bộ khám phá các con phố cổ kính và di tích lịch sử ngoài trời',
+        'Đạp xe dạo quanh bờ hồ ngắm cảnh sắc thơ mộng',
+        'Ngồi café vỉa hè thoáng đãng ngắm dòng người qua lại',
+        'Trải nghiệm các hoạt động chèo thuyền, leo núi hoặc đi dạo khám phá thiên nhiên'
+      ];
+      categories = ['Công viên', 'Di tích', 'Khác', 'Café'];
+      tips = [
+        'Thời tiết hoàn hảo cho mọi chuyến đi ngoài trời. Hãy chuẩn bị một đôi giày đi bộ êm ái.',
+        'Bầu trời quang đãng, ánh sáng lý tưởng để lưu lại những bức hình phong cảnh tuyệt đẹp.',
+        'Bổ sung nước lọc đầy đủ khi đi bộ nhiều để duy trì thể trạng năng động nhất.'
+      ];
+    }
+    // 6. Trời mát dịu nhưng nhiều mây, độ ẩm hơi cao
+    else {
+      mood = 'Thư thái & Dạo mát';
+      activities = [
+        'Đi dạo mát quanh các hồ nước hoặc công viên dưới bóng râm dịu nhẹ',
+        'Ngồi café không gian mở thoáng đãng ngắm cảnh phố phường yên ả',
+        'Tham quan các bảo tàng văn hóa hoặc di tích lịch sử trong khu vực',
+        'Ghé thăm các khu chợ đêm ẩm thực thưởng thức đặc sản đường phố'
+      ];
+      categories = ['Café', 'Công viên', 'Bảo tàng', 'Di tích'];
+      tips = [
+        'Thời tiết dịu mát nhưng độ ẩm hơi cao, nên lựa chọn trang phục cotton rộng rãi, thấm hút mồ hôi.',
+        'Nên bỏ sẵn một chiếc ô nhỏ trong túi xách phòng hờ những cơn mưa rào bất chợt.',
+        'Ánh sáng tản dưới trời nhiều mây rất thuận lợi để bạn chụp chân dung chân thực mà không bị chói mắt.'
+      ];
     }
 
     return { mood, activities, categories, tips };
-  }
-
-  private async getAISuggestions(condition: string, temp: number, humidity: number, windSpeed: number, fallback: any) {
-    if (this.aiApiKeys.length === 0) return null;
-
-    let dbPlaces: any[] = [];
-    try {
-      dbPlaces = await this.prisma.place.findMany({
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          category: { select: { name: true } },
-        },
-        take: 55,
-      });
-    } catch (dbErr) {
-      this.logger.error(`Error fetching places for AI weather suggestions: ${dbErr.message}`);
-    }
-
-    const placesListStr = dbPlaces
-      .map((p) => `- [ID: ${p.id}] ${p.name} (Danh mục: ${p.category.name}, Địa chỉ: ${p.address})`)
-      .join('\n');
-
-    const prompt = `Thời tiết hiện tại: Trạng thái ${condition}, Nhiệt độ ${temp}°C, Độ ẩm ${humidity}%, Tốc độ gió ${windSpeed} m/s.
-Đây là danh sách các địa điểm thực tế có trong cơ sở dữ liệu của hệ thống:
-${placesListStr}
-
-Nhiệm vụ của bạn:
-1. Đánh giá khả năng mưa hôm nay (từ 0% đến 100%) và lượng mưa dự báo (mm) dựa trên trạng thái thời tiết, độ ẩm và tốc độ gió.
-2. Dựa trên thời tiết này, hãy gợi ý hoạt động du lịch phù hợp. Bạn bắt buộc phải chọn ra từ 3 đến 5 địa điểm phù hợp nhất từ danh sách trên để đề xuất cho người dùng.
-
-Trả về định dạng JSON thuần túy (không kèm codeblock markdown, chỉ JSON thô) có dạng:
-{
-  "rainProbability": "khả năng có mưa dự báo từ 0 đến 100 dạng số nguyên (ví dụ: 80)",
-  "estimatedRainfall": "lượng mưa dự kiến dạng số thực mm (ví dụ: 5.5, nếu không mưa để 0)",
-  "rainForecast": "1 câu nhận định ngắn gọn về dự báo mưa trong ngày (ví dụ: Khả năng mưa dông vào chiều tối, lượng mưa vừa phải)",
-  "mood": "tâm trạng gợi ý ví dụ: Chill nhẹ nhàng tránh mưa",
-  "activities": ["hoạt động 1", "hoạt động 2", "hoạt động 3"],
-  "categories": ["Café", "Nhà hàng", "Bảo tàng", "Công viên"],
-  "places": [
-    {
-      "id": "ID của địa điểm đã chọn",
-      "name": "Tên địa điểm đã chọn",
-      "category": "Danh mục địa điểm đã chọn",
-      "address": "Địa chỉ địa điểm đã chọn",
-      "reason": "Lý do đề xuất cụ thể gắn với thời tiết hiện tại (ví dụ: Không gian máy lạnh ấm cúng trốn mưa, món ăn lẩu nóng phù hợp trời lạnh)"
-    }
-  ],
-  "tips": ["lời khuyên 1", "lời khuyên 2"]
-}
-Lưu ý:
-- Mục "places" CHỈ được chọn từ danh sách địa điểm thực tế được cung cấp ở trên. Không được tự chế hoặc lấy địa điểm bên ngoài.
-- Chỉ được gợi ý các danh mục (categories) có trong danh sách sau: ["Café", "Nhà hàng", "Bảo tàng", "Công viên", "Di tích", "Khác"].
-- Trả lời bằng tiếng Việt.`;
-
-    for (let i = 0; i < this.aiApiKeys.length; i++) {
-      const apiKey = this.aiApiKeys[i];
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
-        const response = await axios.post(
-          url,
-          {
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-            },
-          },
-          { timeout: 15000 },
-        );
-
-        const responseText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (responseText) {
-          return JSON.parse(responseText.trim());
-        }
-      } catch (e) {
-        const statusCode = e.response?.status;
-        this.logger.warn(`AI Gemini API Error with key index ${i} (status ${statusCode}): ${e.message}`);
-        
-        // Rotate on rate limit (429) or invalid key (400) if more keys exist
-        if ((statusCode === 429 || statusCode === 400) && i < this.aiApiKeys.length - 1) {
-          this.logger.warn(`Rotating to next API key for weather suggestions...`);
-          this.notificationsService.addNotification(
-            'rotation',
-            'Xoay vòng API Key thành công',
-            `Key số ${i + 1} bị cạn hạn ngạch (status ${statusCode}). Đã tự động xoay sang Key số ${i + 2} cho Weather gợi ý.`
-          );
-          continue;
-        }
-        break;
-      }
-    }
-    return null;
   }
 }
