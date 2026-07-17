@@ -76,4 +76,29 @@ export class ExploreService {
 
     return post;
   }
+
+  async create(data: any, userId: number) {
+    return this.prisma.explorePost.create({
+      data: {
+        title: data.title,
+        description: data.description || null,
+        destination: data.destination || null,
+        coverImage: data.coverImage || null,
+        postType: data.postType || 'USER_GUIDE',
+        status: data.status || 'DRAFT',
+        authorId: userId,
+        items: {
+          create: (data.items || []).map((item: any, index: number) => ({
+            itemType: item.itemType,
+            sortOrder: item.sortOrder ?? index,
+            content: item.content || null,
+            placeId: item.placeId || null,
+          })),
+        },
+      },
+      include: {
+        items: true,
+      }
+    });
+  }
 }

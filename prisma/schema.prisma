@@ -99,6 +99,7 @@ model Itinerary {
   categories  String[]
   amenities   String[]
   dayConfigs  Json     @default("{}")
+  isGuide     Boolean  @default(false)
 
   user         User                  @relation(fields: [userId], references: [id])
   savedPlaces  ItinerarySavedPlace[]

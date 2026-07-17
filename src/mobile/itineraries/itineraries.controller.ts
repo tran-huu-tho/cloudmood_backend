@@ -8,8 +8,8 @@ export class ItinerariesController {
   constructor(private readonly itinerariesService: ItinerariesService) {}
 
   @Get()
-  async findAll(@Request() req) {
-    return this.itinerariesService.findAllByUser(req.user.id.toString());
+  async findAll(@Request() req, @Query('isGuide') isGuide: string) {
+    return this.itinerariesService.findAllByUser(req.user.id.toString(), isGuide === 'true');
   }
 
   @Get('fix-db')
