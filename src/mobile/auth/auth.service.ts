@@ -397,23 +397,39 @@ export class AuthService {
 
     const firebaseApiKey = process.env.FIREBASE_API_KEY;
 
-    if (firebaseApiKey && data.token && !data.token.startsWith('mock-')) {
+    if (data.token && !data.token.startsWith('mock-')) {
       try {
-        const response = await axios.post(
-          `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseApiKey}`,
-          { idToken: data.token }
-        );
-        const firebaseUser = response.data.users?.[0];
-        if (firebaseUser) {
-          email = firebaseUser.email || email;
-          fullName = firebaseUser.displayName || fullName;
-          avatarUrl = firebaseUser.photoUrl || avatarUrl;
-        } else {
-          throw new UnauthorizedException('Token Firebase không hợp lệ.');
+        if (data.provider === 'google.com') {
+          const response = await axios.get(
+            `https://oauth2.googleapis.com/tokeninfo?id_token=${data.token}`
+          );
+          email = response.data.email || email;
+          fullName = response.data.name || fullName;
+          avatarUrl = response.data.picture || avatarUrl;
+        } else if (data.provider === 'facebook.com') {
+          const response = await axios.get(
+            `https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${data.token}`
+          );
+          email = response.data.email || email || `${response.data.id}@facebook.com`;
+          fullName = response.data.name || fullName;
+          avatarUrl = response.data.picture?.data?.url || avatarUrl;
+        } else if (firebaseApiKey) {
+          const response = await axios.post(
+            `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseApiKey}`,
+            { idToken: data.token }
+          );
+          const firebaseUser = response.data.users?.[0];
+          if (firebaseUser) {
+            email = firebaseUser.email || email;
+            fullName = firebaseUser.displayName || fullName;
+            avatarUrl = firebaseUser.photoUrl || avatarUrl;
+          } else {
+            throw new UnauthorizedException('Token Firebase không hợp lệ.');
+          }
         }
       } catch (error: any) {
-        console.error('Firebase token verification failed:', error.response?.data || error.message);
-        throw new UnauthorizedException('Xác thực token Firebase thất bại.');
+        console.error('Social token verification failed:', error.response?.data || error.message);
+        throw new UnauthorizedException('Xác thực tài khoản mạng xã hội thất bại.');
       }
     }
 
