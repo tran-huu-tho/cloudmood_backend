@@ -15,15 +15,16 @@ export class ItinerariesService {
       await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItinerarySavedPlace" ADD COLUMN IF NOT EXISTS "endTime" text`);
       await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "startTime" text`);
       await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "endTime" text`);
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "isGuide" boolean DEFAULT false`);
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
     }
   }
 
-  async findAllByUser(userId: string) {
+  async findAllByUser(userId: string, isGuide: boolean = false) {
     return this.prisma.itinerary.findMany({
-      where: { userId: BigInt(userId) },
+      where: { userId: BigInt(userId), isGuide },
       include: {
         sections: true,
         details: { include: { place: { include: { category: true, photos: true } } } },
@@ -66,14 +67,15 @@ export class ItinerariesService {
       data: {
         title: data.title,
         destination: data.destination,
-        startDate: new Date(data.startDate),
-        days: BigInt(data.days),
-        budget: BigInt(data.budget),
-        companion: data.companion,
-        pace: data.pace,
-        categories: data.categories,
-        amenities: data.amenities,
+        startDate: new Date(data.startDate ?? new Date()),
+        days: data.days != null && data.days !== 0 ? BigInt(data.days) : null,
+        budget: data.budget != null && data.budget !== 0 ? BigInt(data.budget) : null,
+        companion: data.companion || null,
+        pace: data.pace || null,
+        categories: data.categories ?? [],
+        amenities: data.amenities ?? [],
         userId: BigInt(userId),
+        isGuide: data.isGuide === true,
       },
     });
 

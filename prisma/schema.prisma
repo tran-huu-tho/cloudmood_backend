@@ -17,8 +17,10 @@ model User {
   createdAt DateTime @db.Date
   isBlocked Boolean? @default(false)
 
-  reviews      Review[]
-  itineraries  Itinerary[]
+  reviews          Review[]
+  itineraries      Itinerary[]
+  explorePosts     ExplorePost[]
+  explorePostLikes ExplorePostLike[]
 
   @@map("User")
 }
@@ -54,11 +56,12 @@ model Place {
   tripadvisorUrl  String?
   lastSyncedAt    DateTime? @default(now()) @db.Timestamp(6)
 
-  category              Category               @relation(fields: [categoryId], references: [id])
-  reviews               Review[]
-  photos                PlacePhoto[]
-  itinerarySavedPlaces  ItinerarySavedPlace[]
-  itineraryDetails      ItineraryDetail[]
+  category             Category              @relation(fields: [categoryId], references: [id])
+  reviews              Review[]
+  photos               PlacePhoto[]
+  itinerarySavedPlaces ItinerarySavedPlace[]
+  itineraryDetails     ItineraryDetail[]
+  explorePostItems     ExplorePostItem[]
 
   @@map("Place")
 }
@@ -76,8 +79,9 @@ model Review {
   publishedDate    DateTime? @db.Date
   source           String?   @default("LOCAL")
 
-  place Place  @relation(fields: [placeId], references: [id])
-  user  User?  @relation(fields: [userId], references: [id])
+  place            Place             @relation(fields: [placeId], references: [id])
+  user             User?             @relation(fields: [userId], references: [id])
+  explorePostItems ExplorePostItem[]
 
   @@map("Review")
 }
@@ -95,11 +99,13 @@ model Itinerary {
   categories  String[]
   amenities   String[]
   dayConfigs  Json     @default("{}")
+  isGuide     Boolean  @default(false)
 
-  user User @relation(fields: [userId], references: [id])
-  savedPlaces ItinerarySavedPlace[]
-  details     ItineraryDetail[]
-  sections    ItinerarySection[]
+  user         User                  @relation(fields: [userId], references: [id])
+  savedPlaces  ItinerarySavedPlace[]
+  details      ItineraryDetail[]
+  sections     ItinerarySection[]
+  explorePosts ExplorePost[]
 
   @@map("Itinerary")
 }
@@ -118,15 +124,15 @@ model PlacePhoto {
 }
 
 model ItinerarySavedPlace {
-  id          BigInt  @id @default(autoincrement())
+  id          BigInt   @id @default(autoincrement())
   itineraryId BigInt
   placeId     BigInt?
   section     String
   noteText    String?
-  reactions   Json    @default("[]")
-  isCollapsed Boolean @default(false)
-  sortOrder   Int     @default(0)
-  todoItems   Json    @default("[]")
+  reactions   Json     @default("[]")
+  isCollapsed Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  todoItems   Json     @default("[]")
   startTime   String?
   endTime     String?
   isVisited   Boolean  @default(false) @map("is_visited")
@@ -140,15 +146,15 @@ model ItinerarySavedPlace {
 }
 
 model ItineraryDetail {
-  id          BigInt   @id @default(autoincrement())
+  id          BigInt  @id @default(autoincrement())
   day         Int
-  sortOrder   Int      @default(0)
+  sortOrder   Int     @default(0)
   placeId     BigInt?
   itineraryId BigInt
   noteText    String?
-  todoItems   Json     @default("[]")
-  reactions   Json     @default("[]")
-  isCollapsed Boolean  @default(false)
+  todoItems   Json    @default("[]")
+  reactions   Json    @default("[]")
+  isCollapsed Boolean @default(false)
 
   isVisited   Boolean  @default(false) @map("is_visited")
   cost        Decimal? @default(0) @db.Decimal(12, 2)
@@ -191,7 +197,6 @@ model ItinerarySection {
   sortOrder   Int     @default(0)
 
   itinerary Itinerary @relation(fields: [itineraryId], references: [id])
-
 }
 
 model WeatherCache {
@@ -199,15 +204,76 @@ model WeatherCache {
   cityName    String   @unique @db.VarChar(150)
   latitude    Float
   longitude   Float
-  temp        Float    // Temp in Celsius
-  humidity    Int      // Humidity percentage
-  windSpeed   Float    // Wind speed in m/s
-  condition   String   // Weather group (Rain, Clouds, Clear, etc.)
-  description String   // Detailed description in Vietnamese
-  icon        String   // Weather icon ID
-  rawResponse Json     // Raw JSON response from OpenWeatherMap
+  temp        Float // Temp in Celsius
+  humidity    Int // Humidity percentage
+  windSpeed   Float // Wind speed in m/s
+  condition   String // Weather group (Rain, Clouds, Clear, etc.)
+  description String // Detailed description in Vietnamese
+  icon        String // Weather icon ID
+  rawResponse Json // Raw JSON response from OpenWeatherMap
   updatedAt   DateTime @updatedAt
 
   @@map("WeatherCache")
 }
 
+model ExplorePost {
+  id          BigInt  @id @default(autoincrement())
+  title       String
+  description String?
+  coverImage  String?
+
+  postType String // 'USER_ITINERARY' or 'PLATFORM_CURATION'
+
+  authorId            BigInt?
+  originalItineraryId BigInt?
+
+  platformName String?
+  platformLogo String?
+  platformUrl  String?
+
+  viewCount  Int @default(0)
+  likeCount  Int @default(0)
+  shareCount Int @default(0)
+
+  destination String?
+  status      String  @default("PUBLISHED")
+
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @updatedAt @db.Timestamp(6)
+
+  author            User?      @relation(fields: [authorId], references: [id])
+  originalItinerary Itinerary? @relation(fields: [originalItineraryId], references: [id])
+
+  items ExplorePostItem[]
+  likes ExplorePostLike[]
+
+  @@map("ExplorePost")
+}
+
+model ExplorePostItem {
+  id               BigInt  @id @default(autoincrement())
+  postId           BigInt
+  itemType         String // 'PLACE' | 'NOTE' | 'SECTION_HEADER'
+  sortOrder        Int
+  content          String?
+  placeId          BigInt?
+  featuredReviewId BigInt?
+
+  post           ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  place          Place?      @relation(fields: [placeId], references: [id])
+  featuredReview Review?     @relation(fields: [featuredReviewId], references: [id])
+
+  @@map("ExplorePostItem")
+}
+
+model ExplorePostLike {
+  postId    BigInt
+  userId    BigInt
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  post ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId])
+  @@map("ExplorePostLike")
+}

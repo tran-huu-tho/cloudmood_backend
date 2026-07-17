@@ -6,6 +6,7 @@ import { PlacesModule } from './mobile/places/places.module';
 import { ItinerariesModule } from './mobile/itineraries/itineraries.module';
 import { ReviewsModule } from './mobile/reviews/reviews.module';
 import { CategoriesModule } from './mobile/categories/categories.module';
+import { ExploreModule } from './mobile/explore/explore.module';
 import { WeatherModule } from './shared/weather/weather.module';
 import { NotificationsModule } from './shared/notifications/notifications.module';
 import { AdminAiModule } from './admin/ai/ai.module';
@@ -21,6 +22,7 @@ import { AdminModule } from './admin/admin.module';
     ReviewsModule,
     WeatherModule,
     CategoriesModule,
+    ExploreModule,
     NotificationsModule,
     AdminAiModule,
     AdminModule,

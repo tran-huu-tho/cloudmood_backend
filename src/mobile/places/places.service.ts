@@ -46,50 +46,81 @@ export class PlacesService {
   // Cache to avoid geocoding the same destination repeatedly
   private destinationCache: Record<string, string> = {};
 
+  // Helper to remove Vietnamese accents
+  private removeAccents(str: string): string {
+    if (!str) return '';
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .toLowerCase();
+  }
+
   async searchPlaces(destination: string, query?: string, categoryName?: string) {
     const geoapifyKey = this.configService.get<string>('GEOAPIFY_API_KEY');
     let results: any[] = [];
 
     // 1. Search in local database
-    let dbFilter: any = {
-      OR: [
-        { address: { contains: destination, mode: 'insensitive' } },
-        { name: { contains: destination, mode: 'insensitive' } },
-      ],
-    };
-
-    if (query) {
-      dbFilter = {
-        AND: [
-          dbFilter,
-          {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { address: { contains: query, mode: 'insensitive' } },
-            ],
-          },
-        ],
-      };
-    }
+    let dbFilter: any = {};
 
     if (categoryName) {
       const category = await this.prisma.category.findFirst({
         where: { name: categoryName },
       });
       if (category) {
-        if (dbFilter.AND) {
-          dbFilter.AND.push({ categoryId: category.id });
-        } else {
-          dbFilter.categoryId = category.id;
-        }
+        dbFilter.categoryId = category.id;
       }
     }
 
-    const localPlaces = await this.prisma.place.findMany({
+    let localPlaces = await this.prisma.place.findMany({
       where: dbFilter,
       include: { category: true, photos: true },
     });
+
+    // In-memory filter for destination to support accent-insensitive matching
+    if (destination && destination.trim() !== '') {
+      const normalizedDest = this.removeAccents(destination.trim());
+      localPlaces = localPlaces.filter(place => {
+        const normalizedName = this.removeAccents(place.name);
+        const normalizedAddress = this.removeAccents(place.address);
+        return normalizedName.includes(normalizedDest) || normalizedAddress.includes(normalizedDest);
+      });
+    }
     
+    // In-memory filter for query to support accent-insensitive matching
+    if (query && query.trim() !== '') {
+      const normalizedQuery = this.removeAccents(query.trim());
+      const queryWords = normalizedQuery.split(/\s+/);
+      
+      localPlaces = localPlaces.filter(place => {
+        const normalizedName = this.removeAccents(place.name);
+        const normalizedAddress = this.removeAccents(place.address);
+        const searchableText = `${normalizedName} ${normalizedAddress}`;
+        
+        // Every word in the query must exist in the searchable text
+        return queryWords.every(word => searchableText.includes(word));
+      });
+
+      // Sort results by relevance: Name exact match > Name starts with > Name contains > Address match
+      localPlaces.sort((a, b) => {
+        const normNameA = this.removeAccents(a.name);
+        const normNameB = this.removeAccents(b.name);
+        
+        const getScore = (name: string) => {
+          if (name === normalizedQuery) return 3;
+          if (name.startsWith(normalizedQuery)) return 2;
+          if (name.includes(normalizedQuery)) return 1;
+          return 0;
+        };
+
+        const scoreA = getScore(normNameA);
+        const scoreB = getScore(normNameB);
+
+        return scoreB - scoreA;
+      });
+    }
+
     // Map local places to common format
     results.push(...localPlaces);
 
