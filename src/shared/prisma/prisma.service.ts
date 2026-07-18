@@ -16,9 +16,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       await this.$connect();
       try {
         await this.$executeRawUnsafe(`ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "isGuide" boolean DEFAULT false`);
-        console.log('Successfully added isGuide column');
+        
+        // Add routing columns and section type columns
+        await this.$executeRawUnsafe(`ALTER TABLE "ItinerarySection" ADD COLUMN IF NOT EXISTS "sectionType" text DEFAULT 'LIST'`);
+        await this.$executeRawUnsafe(`ALTER TABLE "ItinerarySection" ADD COLUMN IF NOT EXISTS "subTitle" text`);
+        
+
+
+
+        console.log('Successfully added dynamic columns');
       } catch (e) {
-        console.log('isGuide column already exists or error:', e.message);
+        console.log('Columns already exist or error:', e.message);
       }
     } catch (e) {
       console.warn('⚠️ Cảnh báo: Không thể kết nối cơ sở dữ liệu. Ứng dụng vẫn sẽ chạy nhưng các tính năng liên quan đến DB có thể không hoạt động.', e.message);

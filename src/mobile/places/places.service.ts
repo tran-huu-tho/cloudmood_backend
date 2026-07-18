@@ -62,16 +62,21 @@ export class PlacesService {
     let results: any[] = [];
 
     // 1. Search in local database
-    let dbFilter: any = {};
-
-    if (categoryName) {
-      const category = await this.prisma.category.findFirst({
-        where: { name: categoryName },
-      });
-      if (category) {
-        dbFilter.categoryId = category.id;
+    // If categoryName provided, do partial/insensitive match on category name
+    let categoryId: bigint | undefined;
+    if (categoryName && categoryName.trim() !== '') {
+      const normalizedCat = this.removeAccents(categoryName.trim());
+      const allCategories = await this.prisma.category.findMany();
+      const matchedCat = allCategories.find(c =>
+        this.removeAccents(c.name).includes(normalizedCat) ||
+        normalizedCat.includes(this.removeAccents(c.name))
+      );
+      if (matchedCat) {
+        categoryId = matchedCat.id;
       }
     }
+
+    const dbFilter: any = categoryId ? { categoryId } : {};
 
     let localPlaces = await this.prisma.place.findMany({
       where: dbFilter,
@@ -79,12 +84,17 @@ export class PlacesService {
     });
 
     // In-memory filter for destination to support accent-insensitive matching
+    // Only use the first part of the destination (e.g. "Cần Thơ" from "Cần Thơ, Vietnam")
     if (destination && destination.trim() !== '') {
-      const normalizedDest = this.removeAccents(destination.trim());
+      const cityOnly = destination.split(',')[0].trim();
+      const normalizedDest = this.removeAccents(cityOnly);
+      const destWords = normalizedDest.split(/\s+/).filter(w => w.length > 1);
       localPlaces = localPlaces.filter(place => {
         const normalizedName = this.removeAccents(place.name);
         const normalizedAddress = this.removeAccents(place.address);
-        return normalizedName.includes(normalizedDest) || normalizedAddress.includes(normalizedDest);
+        const searchableText = `${normalizedName} ${normalizedAddress}`;
+        // Match if ALL significant destination words found in place name or address
+        return destWords.every(word => searchableText.includes(word));
       });
     }
     
@@ -156,6 +166,7 @@ export class PlacesService {
               'Trung tâm thương mại': 'commercial.shopping_mall',
               'Công viên': 'leisure.park',
               'Điểm tham quan': 'tourism.attraction',
+              'Địa điểm tham quan': 'tourism.attraction',
             };
             
             const geoCat = categoryMap[categoryName];

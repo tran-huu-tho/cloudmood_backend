@@ -192,9 +192,11 @@ model ItinerarySection {
   id          BigInt  @id @default(autoincrement())
   itineraryId BigInt
   name        String
+  subTitle    String? // Ghi chú phụ bên dưới tiêu đề section
   colorCode   String?
   iconCode    Int?
   sortOrder   Int     @default(0)
+  sectionType String  @default("LIST") // 'LIST' = Danh sách | 'ITINERARY' = Hành trình
 
   itinerary Itinerary @relation(fields: [itineraryId], references: [id])
 }
