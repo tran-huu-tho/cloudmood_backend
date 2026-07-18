@@ -79,15 +79,50 @@ export class ItinerariesService {
       },
     });
 
-    await this.prisma.itinerarySection.create({
-      data: {
-        itineraryId: itinerary.id,
-        name: 'Địa điểm tham quan',
-        colorCode: '4282057462',
-        iconCode: 983363, // corresponds to Icons.looks_one_rounded.codePoint
-        sortOrder: 0,
-      },
-    });
+    if (data.isGuide === true) {
+      await this.prisma.itinerarySection.createMany({
+        data: [
+          {
+            itineraryId: itinerary.id,
+            name: 'Mẹo chung',
+            colorCode: '4282057462',
+            iconCode: 983363,
+            sortOrder: 0,
+            sectionType: 'LIST'
+          },
+          {
+            itineraryId: itinerary.id,
+            name: 'Ngày 1',
+            colorCode: '4282057462',
+            iconCode: 983363,
+            sortOrder: 1,
+            sectionType: 'ITINERARY'
+          },
+          {
+            itineraryId: itinerary.id,
+            name: 'Điểm tham quan',
+            colorCode: '4282057462',
+            iconCode: 983363,
+            sortOrder: 2,
+            sectionType: 'LIST'
+          }
+        ]
+      });
+    } else {
+      await this.prisma.itinerarySection.create({
+        data: {
+          itineraryId: itinerary.id,
+          name: 'Điểm tham quan',
+          colorCode: '4282057462',
+          iconCode: 983363, // corresponds to Icons.looks_one_rounded.codePoint
+          sortOrder: 0,
+          sectionType: 'LIST'
+        },
+      });
+    }
+
+    // We do not auto-save places to ItinerarySavedPlace.
+    // The mobile app dynamically loads suggestions based on the destination.
 
     return itinerary;
   }
@@ -213,6 +248,7 @@ export class ItinerariesService {
           colorCode: data.colorCode,
           iconCode: data.iconCode,
           sortOrder: data.sortOrder,
+          sectionType: data.sectionType,
         },
       });
     }
@@ -223,6 +259,7 @@ export class ItinerariesService {
         colorCode: data.colorCode,
         iconCode: data.iconCode,
         sortOrder: data.sortOrder || 0,
+        sectionType: data.sectionType || 'LIST',
       },
     });
   }
