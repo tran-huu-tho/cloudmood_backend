@@ -38,7 +38,7 @@ export class ExploreService {
 
   async findOne(id: number) {
     const post = await this.prisma.explorePost.findUnique({
-      where: { id },
+      where: { id: BigInt(id) },
       include: {
         author: {
           select: {
@@ -86,13 +86,13 @@ export class ExploreService {
         coverImage: data.coverImage || null,
         postType: data.postType || 'USER_GUIDE',
         status: data.status || 'DRAFT',
-        authorId: userId,
+        authorId: BigInt(userId),
         items: {
           create: (data.items || []).map((item: any, index: number) => ({
             itemType: item.itemType,
             sortOrder: item.sortOrder ?? index,
             content: item.content || null,
-            placeId: item.placeId || null,
+            placeId: item.placeId ? BigInt(item.placeId) : null,
           })),
         },
       },

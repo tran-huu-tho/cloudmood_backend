@@ -314,7 +314,7 @@ export class AiService {
       while (iteration < maxIterations) {
         iteration++;
         const response = await this.postWithKeyRotation(
-          'models/gemini-3.5-flash:generateContent',
+          'models/gemini-1.5-flash:generateContent',
           {
             contents: currentSessionContents,
             systemInstruction: {
