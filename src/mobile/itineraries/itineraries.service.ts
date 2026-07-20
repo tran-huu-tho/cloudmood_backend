@@ -29,6 +29,10 @@ export class ItinerariesService {
         sections: true,
         details: { include: { place: { include: { category: true, photos: true } } } },
         savedPlaces: { include: { place: { include: { category: true, photos: true } } } },
+        explorePosts: {
+          where: { status: 'PUBLISHED' },
+          select: { id: true },
+        },
       },
       orderBy: { id: 'desc' },
     });
@@ -41,6 +45,10 @@ export class ItinerariesService {
         sections: true,
         details: { include: { place: { include: { category: true, photos: true } } } },
         savedPlaces: { include: { place: { include: { category: true, photos: true } } } },
+        explorePosts: {
+          where: { status: 'PUBLISHED' },
+          select: { id: true },
+        },
       },
     });
 
