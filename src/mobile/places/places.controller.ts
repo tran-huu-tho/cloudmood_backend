@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Param } from '@nestjs/common';
+import { Controller, Get, Post, Query, Param, Body, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { PlacesService } from './places.service';
 
 @Controller('places')
@@ -23,5 +24,11 @@ export class PlacesController {
     @Query('categoryName') categoryName?: string,
   ) {
     return this.placesService.searchPlaces(destination, query, categoryName);
+  }
+
+  @Post()
+  @UseGuards(AuthGuard('jwt'))
+  async proposePlace(@Body() body: any) {
+    return this.placesService.proposePlace(body);
   }
 }

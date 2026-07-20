@@ -195,7 +195,13 @@ export class AdminService {
   }
 
   // 4. Places & Photos Management
-  async getPlaces(search?: string, categoryId?: string, page: number = 1, limit: number = 15) {
+  async getPlaces(
+    search?: string, 
+    categoryId?: string, 
+    page: number = 1, 
+    limit: number = 15,
+    isApproved?: string
+  ) {
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -204,6 +210,11 @@ export class AdminService {
     }
     if (categoryId) {
       where.categoryId = BigInt(categoryId);
+    }
+    if (isApproved === 'true') {
+      where.isApproved = true;
+    } else if (isApproved === 'false') {
+      where.isApproved = false;
     }
 
     const [places, total] = await Promise.all([
@@ -299,6 +310,7 @@ export class AdminService {
         openingHours: data.openingHours !== undefined ? data.openingHours : place.openingHours ?? {},
         subCategories: data.subCategories !== undefined ? data.subCategories : place.subCategories ?? [],
         externalId: data.externalId !== undefined ? data.externalId : place.externalId,
+        isApproved: data.isApproved !== undefined ? (data.isApproved === true || data.isApproved === 'true') : place.isApproved,
         lastSyncedAt: new Date(),
       },
     });

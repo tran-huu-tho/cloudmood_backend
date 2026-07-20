@@ -55,6 +55,7 @@ model Place {
   subCategories   Json?
   tripadvisorUrl  String?
   lastSyncedAt    DateTime? @default(now()) @db.Timestamp(6)
+  isApproved      Boolean   @default(true)
 
   category             Category              @relation(fields: [categoryId], references: [id])
   reviews              Review[]
