@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
@@ -19,12 +19,13 @@ export class PlacesService {
       });
       if (category) {
         return this.prisma.place.findMany({
-          where: { categoryId: category.id },
+          where: { categoryId: category.id, isApproved: true },
           include: { category: true, photos: true },
         });
       }
     }
     return this.prisma.place.findMany({
+      where: { isApproved: true },
       include: { category: true, photos: true },
     });
   }
@@ -76,7 +77,10 @@ export class PlacesService {
       }
     }
 
-    const dbFilter: any = categoryId ? { categoryId } : {};
+    const dbFilter: any = { isApproved: true };
+    if (categoryId) {
+      dbFilter.categoryId = categoryId;
+    }
 
     let localPlaces = await this.prisma.place.findMany({
       where: dbFilter,
@@ -212,5 +216,30 @@ export class PlacesService {
     }
 
     return results;
+  }
+
+  async proposePlace(data: any) {
+    if (!data.name || !data.categoryId) {
+      throw new BadRequestException('Tên địa điểm và Danh mục không được để trống.');
+    }
+
+    return this.prisma.place.create({
+      data: {
+        name: data.name,
+        description: data.description || '',
+        latitude: data.latitude !== undefined ? parseFloat(data.latitude) : 0.0,
+        longitude: data.longitude !== undefined ? parseFloat(data.longitude) : 0.0,
+        address: data.address || '',
+        price: data.price || 'Liên hệ',
+        categoryId: BigInt(data.categoryId),
+        image: data.image || '',
+        rating: 4.5,
+        userRatingCount: 1,
+        phone: data.phone || null,
+        website: data.website || null,
+        priceLevel: data.priceLevel || 'MODERATE',
+        isApproved: false, // Suggestions start as pending approval
+      },
+    });
   }
 }

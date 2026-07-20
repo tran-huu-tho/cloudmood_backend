@@ -84,10 +84,11 @@ export class AdminController {
     @Query('categoryId') categoryId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('isApproved') isApproved?: string,
   ) {
     const pageNum = page ? parseInt(page) : 1;
     const limitNum = limit ? parseInt(limit) : 15;
-    return this.adminService.getPlaces(search, categoryId, pageNum, limitNum);
+    return this.adminService.getPlaces(search, categoryId, pageNum, limitNum, isApproved);
   }
 
   @Get('places/:id')
