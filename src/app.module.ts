@@ -11,6 +11,7 @@ import { WeatherModule } from './shared/weather/weather.module';
 import { NotificationsModule } from './shared/notifications/notifications.module';
 import { AdminAiModule } from './admin/ai/ai.module';
 import { AdminModule } from './admin/admin.module';
+import { MobileAiModule } from './mobile/ai/ai.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AdminModule } from './admin/admin.module';
     NotificationsModule,
     AdminAiModule,
     AdminModule,
+    MobileAiModule,
   ],
   controllers: [],
   providers: [],
