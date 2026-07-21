@@ -12,6 +12,7 @@ import { NotificationsModule } from './shared/notifications/notifications.module
 import { AdminAiModule } from './admin/ai/ai.module';
 import { AdminModule } from './admin/admin.module';
 import { MobileAiModule } from './mobile/ai/ai.module';
+import { ForumModule } from './mobile/forum/forum.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { MobileAiModule } from './mobile/ai/ai.module';
     AdminAiModule,
     AdminModule,
     MobileAiModule,
+    ForumModule,
   ],
   controllers: [],
   providers: [],

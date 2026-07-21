@@ -4,23 +4,28 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider     = "postgresql"
+  relationMode = "prisma"
 }
 
 model User {
-  id        BigInt   @id @default(autoincrement())
-  fullName  String
-  email     String   @unique
-  password  String
-  avatar    String?
-  role      Boolean  @default(true)
-  createdAt DateTime @db.Date
-  isBlocked Boolean? @default(false)
+  id               BigInt            @id @default(autoincrement())
+  fullName         String            @db.VarChar
+  email            String            @unique @db.VarChar
+  password         String            @db.VarChar
+  avatar           String?           @db.VarChar
+  role             Boolean           @default(true)
+  createdAt        DateTime          @db.Date
+  isBlocked        Boolean?          @default(false)
 
   reviews          Review[]
   itineraries      Itinerary[]
   explorePosts     ExplorePost[]
   explorePostLikes ExplorePostLike[]
+  forumPosts       ForumPost[]
+  forumComments    ForumComment[]
+  forumLikes       ForumLike[]
+  forumSaves       ForumSave[]
 
   @@map("User")
 }
@@ -37,25 +42,25 @@ model Category {
 
 model Place {
   id              BigInt    @id @default(autoincrement())
-  name            String
-  description     String
+  name            String    @db.VarChar
+  description     String    @db.VarChar
   latitude        Float
   longitude       Float
-  address         String
-  price           String
+  address         String    @db.VarChar
+  price           String    @db.VarChar
   categoryId      BigInt
-  image           String
+  image           String    @db.VarChar
   rating          Float?
   userRatingCount Int?
-  externalId      String?   @unique
-  phone           String?
-  website         String?
-  priceLevel      String?
+  externalId      String?   @unique @db.VarChar(100)
+  phone           String?   @db.VarChar(50)
+  website         String?   @db.VarChar(255)
+  priceLevel      String?   @db.VarChar(10)
   openingHours    Json?
   subCategories   Json?
   tripadvisorUrl  String?
   lastSyncedAt    DateTime? @default(now()) @db.Timestamp(6)
-  isApproved      Boolean   @default(true)
+  isApproved      Boolean?  @default(true)
 
   category             Category              @relation(fields: [categoryId], references: [id])
   reviews              Review[]
@@ -63,6 +68,7 @@ model Place {
   itinerarySavedPlaces ItinerarySavedPlace[]
   itineraryDetails     ItineraryDetail[]
   explorePostItems     ExplorePostItem[]
+  forumPosts           ForumPost[]
 
   @@map("Place")
 }
@@ -70,15 +76,15 @@ model Place {
 model Review {
   id               BigInt    @id @default(autoincrement())
   rating           Float     @db.Real
-  comment          String
+  comment          String    @db.VarChar
   userId           BigInt?
   placeId          BigInt
-  externalReviewId String?   @unique
-  authorName       String?
-  authorAvatar     String?
-  authorLocation   String?
+  externalReviewId String?   @unique @db.VarChar(100)
+  authorName       String?   @db.VarChar(150)
+  authorAvatar     String?   @db.VarChar(255)
+  authorLocation   String?   @db.VarChar(150)
   publishedDate    DateTime? @db.Date
-  source           String?   @default("LOCAL")
+  source           String?   @default("LOCAL") @db.VarChar(20)
 
   place            Place             @relation(fields: [placeId], references: [id])
   user             User?             @relation(fields: [userId], references: [id])
@@ -89,18 +95,18 @@ model Review {
 
 model Itinerary {
   id          BigInt   @id @default(autoincrement())
-  title       String
+  title       String   @db.VarChar
   startDate   DateTime @db.Date
   days        BigInt?
   budget      BigInt?
   userId      BigInt
-  destination String
-  companion   String?
-  pace        String?
+  destination String   @db.VarChar
+  companion   String?  @db.VarChar
+  pace        String?  @db.VarChar
   categories  String[]
   amenities   String[]
   dayConfigs  Json     @default("{}")
-  isGuide     Boolean  @default(false)
+  isGuide     Boolean? @default(false)
 
   user         User                  @relation(fields: [userId], references: [id])
   savedPlaces  ItinerarySavedPlace[]
@@ -114,10 +120,10 @@ model Itinerary {
 model PlacePhoto {
   id           BigInt  @id @default(autoincrement())
   placeId      BigInt
-  urlOriginal  String
-  urlThumbnail String?
+  urlOriginal  String  @db.VarChar(500)
+  urlThumbnail String? @db.VarChar(500)
   caption      String?
-  source       String? @default("TRIPADVISOR")
+  source       String? @default("TRIPADVISOR") @db.VarChar(20)
 
   place Place @relation(fields: [placeId], references: [id])
 
@@ -125,10 +131,10 @@ model PlacePhoto {
 }
 
 model ItinerarySavedPlace {
-  id          BigInt   @id @default(autoincrement())
+  id          BigInt   @id(map: "itinerarysavedplace_pkey") @default(autoincrement())
   itineraryId BigInt
   placeId     BigInt?
-  section     String
+  section     String   @db.VarChar
   noteText    String?
   reactions   Json     @default("[]")
   isCollapsed Boolean  @default(false)
@@ -136,7 +142,7 @@ model ItinerarySavedPlace {
   todoItems   Json     @default("[]")
   startTime   String?
   endTime     String?
-  isVisited   Boolean  @default(false) @map("is_visited")
+  isVisited   Boolean? @default(false) @map("is_visited")
   cost        Decimal? @default(0) @db.Decimal(12, 2)
   attachments Json     @default("[]")
 
@@ -147,17 +153,16 @@ model ItinerarySavedPlace {
 }
 
 model ItineraryDetail {
-  id          BigInt  @id @default(autoincrement())
+  id          BigInt   @id(map: "itinerarydetail_pkey") @default(autoincrement())
   day         Int
-  sortOrder   Int     @default(0)
+  sortOrder   Int      @default(0)
   placeId     BigInt?
   itineraryId BigInt
   noteText    String?
-  todoItems   Json    @default("[]")
-  reactions   Json    @default("[]")
-  isCollapsed Boolean @default(false)
-
-  isVisited   Boolean  @default(false) @map("is_visited")
+  todoItems   Json     @default("[]")
+  reactions   Json     @default("[]")
+  isCollapsed Boolean  @default(false)
+  isVisited   Boolean? @default(false) @map("is_visited")
   cost        Decimal? @default(0) @db.Decimal(12, 2)
   attachments Json     @default("[]")
   startTime   String?
@@ -170,9 +175,9 @@ model ItineraryDetail {
 }
 
 model ChecklistTemplateCategory {
-  id      BigInt @id @default(autoincrement())
-  name    String
-  tabType String
+  id      BigInt @id(map: "checklisttemplatecategory_pkey") @default(autoincrement())
+  name    String @db.VarChar
+  tabType String @db.VarChar
 
   items ChecklistTemplateItem[]
 
@@ -180,9 +185,9 @@ model ChecklistTemplateCategory {
 }
 
 model ChecklistTemplateItem {
-  id         BigInt @id @default(autoincrement())
+  id         BigInt @id(map: "checklisttemplateitem_pkey") @default(autoincrement())
   categoryId BigInt
-  name       String
+  name       String @db.VarChar
 
   category ChecklistTemplateCategory @relation(fields: [categoryId], references: [id])
 
@@ -192,12 +197,12 @@ model ChecklistTemplateItem {
 model ItinerarySection {
   id          BigInt  @id @default(autoincrement())
   itineraryId BigInt
-  name        String
-  subTitle    String? // Ghi chú phụ bên dưới tiêu đề section
-  colorCode   String?
+  name        String  @db.VarChar
+  subTitle    String? @db.VarChar
+  colorCode   String? @db.VarChar
   iconCode    Int?
   sortOrder   Int     @default(0)
-  sectionType String  @default("LIST") // 'LIST' = Danh sách | 'ITINERARY' = Hành trình
+  sectionType String  @default("LIST") @db.VarChar
 
   itinerary Itinerary @relation(fields: [itineraryId], references: [id])
 }
@@ -207,64 +212,55 @@ model WeatherCache {
   cityName    String   @unique @db.VarChar(150)
   latitude    Float
   longitude   Float
-  temp        Float // Temp in Celsius
-  humidity    Int // Humidity percentage
-  windSpeed   Float // Wind speed in m/s
-  condition   String // Weather group (Rain, Clouds, Clear, etc.)
-  description String // Detailed description in Vietnamese
-  icon        String // Weather icon ID
-  rawResponse Json // Raw JSON response from OpenWeatherMap
-  updatedAt   DateTime @updatedAt
+  temp        Float
+  humidity    Int
+  windSpeed   Float
+  condition   String
+  description String
+  icon        String
+  rawResponse Json
+  updatedAt   DateTime @default(now()) @updatedAt
 
   @@map("WeatherCache")
 }
 
 model ExplorePost {
-  id          BigInt  @id @default(autoincrement())
-  title       String
-  description String?
-  coverImage  String?
-
-  postType String // 'USER_ITINERARY' or 'PLATFORM_CURATION'
-
+  id                  BigInt            @id @default(autoincrement())
+  title               String
+  description         String?
+  coverImage          String?
+  postType            String
   authorId            BigInt?
   originalItineraryId BigInt?
-
-  platformName String?
-  platformLogo String?
-  platformUrl  String?
-
-  viewCount  Int @default(0)
-  likeCount  Int @default(0)
-  shareCount Int @default(0)
-
-  destination String?
-  status      String  @default("PUBLISHED")
-
-  createdAt DateTime @default(now()) @db.Timestamp(6)
-  updatedAt DateTime @updatedAt @db.Timestamp(6)
-
-  author            User?      @relation(fields: [authorId], references: [id])
-  originalItinerary Itinerary? @relation(fields: [originalItineraryId], references: [id])
-
-  items ExplorePostItem[]
-  likes ExplorePostLike[]
+  platformName        String?
+  platformLogo        String?
+  platformUrl         String?
+  viewCount           Int               @default(0)
+  likeCount           Int               @default(0)
+  shareCount          Int               @default(0)
+  destination         String?
+  status              String            @default("PUBLISHED")
+  createdAt           DateTime          @default(now()) @db.Timestamp(6)
+  updatedAt           DateTime          @updatedAt @db.Timestamp(6)
+  author              User?             @relation(fields: [authorId], references: [id])
+  originalItinerary   Itinerary?        @relation(fields: [originalItineraryId], references: [id])
+  items               ExplorePostItem[]
+  likes               ExplorePostLike[]
 
   @@map("ExplorePost")
 }
 
 model ExplorePostItem {
-  id               BigInt  @id @default(autoincrement())
+  id               BigInt      @id @default(autoincrement())
   postId           BigInt
-  itemType         String // 'PLACE' | 'NOTE' | 'SECTION_HEADER'
+  itemType         String
   sortOrder        Int
   content          String?
   placeId          BigInt?
   featuredReviewId BigInt?
-
-  post           ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  place          Place?      @relation(fields: [placeId], references: [id])
-  featuredReview Review?     @relation(fields: [featuredReviewId], references: [id])
+  featuredReview   Review?     @relation(fields: [featuredReviewId], references: [id])
+  place            Place?      @relation(fields: [placeId], references: [id])
+  post             ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@map("ExplorePostItem")
 }
@@ -272,11 +268,92 @@ model ExplorePostItem {
 model ExplorePostLike {
   postId    BigInt
   userId    BigInt
-  createdAt DateTime @default(now()) @db.Timestamp(6)
-
-  post ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now()) @db.Timestamp(6)
+  post      ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([postId, userId])
   @@map("ExplorePostLike")
+}
+
+// ==========================================
+// NEW FORUM MODELS
+// ==========================================
+
+// Bảng bài đăng trong diễn đàn
+model ForumPost {
+  id          BigInt   @id @default(autoincrement())
+  userId      BigInt
+  content     String   @db.Text
+  placeId     BigInt?  // Địa điểm được gắn thẻ (nullable)
+  viewCount   Int      @default(0)
+  createdAt   DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime  @updatedAt @db.Timestamp(6)
+  editedAt    DateTime? @db.Timestamp(6)
+
+  // Mối quan hệ
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  place       Place?         @relation(fields: [placeId], references: [id], onDelete: SetNull)
+  media       ForumMedia[]
+  comments    ForumComment[]
+  likes       ForumLike[]
+  saves       ForumSave[]
+
+  @@map("ForumPost")
+}
+
+// Bảng chứa hình ảnh / video đính kèm bài viết
+model ForumMedia {
+  id        BigInt   @id @default(autoincrement())
+  postId    BigInt
+  url       String
+  mediaType String   // 'IMAGE' hoặc 'VIDEO'
+  sortOrder Int      @default(0)
+
+  post      ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@map("ForumMedia")
+}
+
+// Bảng bình luận bài viết
+model ForumComment {
+  id        BigInt    @id @default(autoincrement())
+  postId    BigInt
+  userId    BigInt
+  content   String    @db.Text
+  mediaUrl  String?
+  mediaType String?   // 'IMAGE' hoặc 'VIDEO'
+  createdAt DateTime  @default(now()) @db.Timestamp(6)
+  editedAt  DateTime? @db.Timestamp(6)
+
+  post      ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ForumComment")
+}
+
+// Bảng thả tim (Like) - Sử dụng Composite Primary Key để tránh trùng lặp
+model ForumLike {
+  postId    BigInt
+  userId    BigInt
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  post      ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId])
+  @@map("ForumLike")
+}
+
+// Bảng lưu bài viết (Save/Bookmark)
+model ForumSave {
+  postId    BigInt
+  userId    BigInt
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  post      ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId])
+  @@map("ForumSave")
 }
