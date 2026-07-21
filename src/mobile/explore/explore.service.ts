@@ -153,7 +153,7 @@ export class ExploreService {
       const sub = photo.place?.subCategories;
       if (!sub) return true; // if no subCategories, include by default
 
-      const types: string[] = Array.isArray(sub) ? sub : (typeof sub === 'object' ? Object.values(sub as any).flat() : []);
+      const types: string[] = (Array.isArray(sub) ? sub : (typeof sub === 'object' ? Object.values(sub as any).flat() : [])) as string[];
 
       const hasExcluded = types.some(t => EXCLUDED_TYPES.includes(t));
       if (hasExcluded) return false;
