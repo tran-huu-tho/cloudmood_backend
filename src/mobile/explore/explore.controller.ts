@@ -50,4 +50,10 @@ export class ExploreController {
   unlikePost(@Request() req, @Param('id', ParseIntPipe) id: number) {
     return this.exploreService.unlikePost(id, Number(req.user.id));
   }
+
+  @Get('by-place/:placeId')
+  findByPlaceId(@Param('placeId', ParseIntPipe) placeId: number) {
+    return this.exploreService.findByPlaceId(placeId);
+  }
 }
+

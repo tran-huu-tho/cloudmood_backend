@@ -21,6 +21,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         await this.$executeRawUnsafe(`ALTER TABLE "ItinerarySection" ADD COLUMN IF NOT EXISTS "sectionType" text DEFAULT 'LIST'`);
         await this.$executeRawUnsafe(`ALTER TABLE "ItinerarySection" ADD COLUMN IF NOT EXISTS "subTitle" text`);
         
+        // Add isApproved to Place table dynamically
+        await this.$executeRawUnsafe(`ALTER TABLE "Place" ADD COLUMN IF NOT EXISTS "isApproved" boolean DEFAULT true`);
+        
 
 
 

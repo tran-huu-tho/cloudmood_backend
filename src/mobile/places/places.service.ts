@@ -12,22 +12,108 @@ export class PlacesService {
     private configService: ConfigService,
   ) {}
 
-  async findAll(categoryName?: string) {
-    if (categoryName) {
+  async findAll(
+    categoryName?: string,
+    page?: number,
+    limit?: number,
+    query?: string,
+    priceLevels?: string[],
+    minRating?: number,
+    amenities?: string[],
+  ) {
+    const where: any = { isApproved: true };
+
+    if (categoryName && categoryName !== 'Tất cả' && categoryName !== 'Nổi bật') {
       const category = await this.prisma.category.findFirst({
         where: { name: categoryName },
       });
       if (category) {
-        return this.prisma.place.findMany({
-          where: { categoryId: category.id, isApproved: true },
-          include: { category: true, photos: true },
-        });
+        where.categoryId = category.id;
+      } else {
+        return [];
       }
     }
-    return this.prisma.place.findMany({
-      where: { isApproved: true },
+
+    if (query && query.trim() !== '') {
+      where.OR = [
+        { name: { contains: query, mode: 'insensitive' } },
+        { address: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+
+    if (minRating !== undefined && !isNaN(minRating)) {
+      where.rating = { gte: minRating };
+    }
+
+    if (priceLevels && priceLevels.length > 0) {
+      where.priceLevel = { in: priceLevels };
+    }
+
+    let places = await this.prisma.place.findMany({
+      where,
       include: { category: true, photos: true },
+      orderBy: [
+        { userRatingCount: { sort: 'desc', nulls: 'last' } },
+        { rating: { sort: 'desc', nulls: 'last' } },
+        { id: 'asc' },
+      ],
     });
+
+    if (amenities && amenities.length > 0) {
+      places = places.filter(place => {
+        if (!place.subCategories) return false;
+        try {
+          const placeAms: any[] = Array.isArray(place.subCategories)
+            ? place.subCategories
+            : JSON.parse(place.subCategories as string);
+          if (!Array.isArray(placeAms)) return false;
+          return amenities.every(am =>
+            placeAms.some(pAm => pAm.toString().toLowerCase().includes(am.toLowerCase()))
+          );
+        } catch (e) {
+          return false;
+        }
+      });
+    }
+
+    if (query && query.trim() !== '') {
+      const normalizedQuery = this.removeAccents(query.trim());
+      places.sort((a, b) => {
+        const normNameA = this.removeAccents(a.name);
+        const normNameB = this.removeAccents(b.name);
+        
+        const getScore = (name: string) => {
+          if (name === normalizedQuery) return 3;
+          if (name.startsWith(normalizedQuery)) return 2;
+          if (name.includes(normalizedQuery)) return 1;
+          return 0;
+        };
+
+        const scoreA = getScore(normNameA);
+        const scoreB = getScore(normNameB);
+
+        if (scoreB !== scoreA) {
+          return scoreB - scoreA;
+        }
+
+        const ratingCountA = a.userRatingCount || 0;
+        const ratingCountB = b.userRatingCount || 0;
+        if (ratingCountB !== ratingCountA) {
+          return ratingCountB - ratingCountA;
+        }
+
+        const ratingA = a.rating || 0;
+        const ratingB = b.rating || 0;
+        return ratingB - ratingA;
+      });
+    }
+
+    if (page && limit) {
+      const skip = (page - 1) * limit;
+      return places.slice(skip, skip + limit);
+    }
+
+    return places;
   }
 
   async isDestinationSupported(cityName: string) {
@@ -58,14 +144,21 @@ export class PlacesService {
       .toLowerCase();
   }
 
-  async searchPlaces(destination: string, query?: string, categoryName?: string) {
+  async searchPlaces(
+    destination: string,
+    query?: string,
+    categoryName?: string,
+    priceLevels?: string[],
+    minRating?: number,
+    amenities?: string[],
+  ) {
     const geoapifyKey = this.configService.get<string>('GEOAPIFY_API_KEY');
     let results: any[] = [];
 
     // 1. Search in local database
     // If categoryName provided, do partial/insensitive match on category name
     let categoryId: bigint | undefined;
-    if (categoryName && categoryName.trim() !== '') {
+    if (categoryName && categoryName.trim() !== '' && categoryName !== 'Tất cả' && categoryName !== 'Nổi bật') {
       const normalizedCat = this.removeAccents(categoryName.trim());
       const allCategories = await this.prisma.category.findMany();
       const matchedCat = allCategories.find(c =>
@@ -82,10 +175,35 @@ export class PlacesService {
       dbFilter.categoryId = categoryId;
     }
 
+    if (minRating !== undefined && !isNaN(minRating)) {
+      dbFilter.rating = { gte: minRating };
+    }
+
+    if (priceLevels && priceLevels.length > 0) {
+      dbFilter.priceLevel = { in: priceLevels };
+    }
+
     let localPlaces = await this.prisma.place.findMany({
       where: dbFilter,
       include: { category: true, photos: true },
     });
+
+    if (amenities && amenities.length > 0) {
+      localPlaces = localPlaces.filter(place => {
+        if (!place.subCategories) return false;
+        try {
+          const placeAms: any[] = Array.isArray(place.subCategories)
+            ? place.subCategories
+            : JSON.parse(place.subCategories as string);
+          if (!Array.isArray(placeAms)) return false;
+          return amenities.every(am =>
+            placeAms.some(pAm => pAm.toString().toLowerCase().includes(am.toLowerCase()))
+          );
+        } catch (e) {
+          return false;
+        }
+      });
+    }
 
     // In-memory filter for destination to support accent-insensitive matching
     // Only use the first part of the destination (e.g. "Cần Thơ" from "Cần Thơ, Vietnam")
@@ -131,7 +249,20 @@ export class PlacesService {
         const scoreA = getScore(normNameA);
         const scoreB = getScore(normNameB);
 
-        return scoreB - scoreA;
+        if (scoreB !== scoreA) {
+          return scoreB - scoreA;
+        }
+
+        // If scores are equal, sort by userRatingCount (desc) and rating (desc)
+        const ratingCountA = a.userRatingCount || 0;
+        const ratingCountB = b.userRatingCount || 0;
+        if (ratingCountB !== ratingCountA) {
+          return ratingCountB - ratingCountA;
+        }
+
+        const ratingA = a.rating || 0;
+        const ratingB = b.rating || 0;
+        return ratingB - ratingA;
       });
     }
 
@@ -213,6 +344,20 @@ export class PlacesService {
       } catch (error: any) {
         this.logger.error(`Geoapify error: ${error.message}`);
       }
+    }
+
+    // Sort final results by userRatingCount (desc) and rating (desc) if there's no search query
+    if (!query || query.trim() === '') {
+      results.sort((a, b) => {
+        const ratingCountA = a.userRatingCount || 0;
+        const ratingCountB = b.userRatingCount || 0;
+        if (ratingCountB !== ratingCountA) {
+          return ratingCountB - ratingCountA;
+        }
+        const ratingA = a.rating || 0;
+        const ratingB = b.rating || 0;
+        return ratingB - ratingA;
+      });
     }
 
     return results;
