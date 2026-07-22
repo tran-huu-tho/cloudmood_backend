@@ -1,13 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { WeatherService } from '../../shared/weather/weather.service';
 
 @Injectable()
-export class ItinerariesService {
+export class ItinerariesService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private weatherService: WeatherService,
   ) {}
+
+  async onModuleInit() {
+    await this.fixDb();
+  }
 
   async fixDb() {
     try {
@@ -26,6 +30,9 @@ export class ItinerariesService {
       await this.prisma.$executeRawUnsafe(
         `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "isGuide" boolean DEFAULT false`,
       );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "coverImage" text`,
+      );
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
@@ -33,7 +40,7 @@ export class ItinerariesService {
   }
 
   async findAllByUser(userId: string, isGuide: boolean = false) {
-    return this.prisma.itinerary.findMany({
+    const itineraries = await this.prisma.itinerary.findMany({
       where: { userId: BigInt(userId), isGuide },
       include: {
         sections: true,
@@ -49,6 +56,14 @@ export class ItinerariesService {
         },
       },
       orderBy: { id: 'desc' },
+    });
+
+    return itineraries.map((item) => {
+      const dc = (item.dayConfigs as any) || {};
+      return {
+        ...item,
+        coverImage: dc.coverImage || null,
+      };
     });
   }
 
@@ -83,8 +98,10 @@ export class ItinerariesService {
       // Ignored: do not crash itinerary fetch if weather API is unreachable
     }
 
+    const dayConfigsObj = (itinerary.dayConfigs as any) || {};
     return {
       ...itinerary,
+      coverImage: dayConfigsObj.coverImage || null,
       weather,
     };
   }

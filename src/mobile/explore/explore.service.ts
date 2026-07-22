@@ -57,6 +57,11 @@ export class ExploreService {
             avatar: true,
           },
         },
+        originalItinerary: {
+          include: {
+            sections: true,
+          },
+        },
         likes: {
           select: { userId: true },
         },

@@ -108,6 +108,7 @@ model Itinerary {
   amenities   String[]
   dayConfigs  Json     @default("{}")
   isGuide     Boolean? @default(false)
+  coverImage  String?
 
   user         User                  @relation(fields: [userId], references: [id])
   savedPlaces  ItinerarySavedPlace[]
