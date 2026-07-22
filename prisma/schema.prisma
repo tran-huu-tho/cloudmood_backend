@@ -26,6 +26,7 @@ model User {
   forumComments    ForumComment[]
   forumLikes       ForumLike[]
   forumSaves       ForumSave[]
+  chatSessions     ChatSession[]
 
   @@map("User")
 }
@@ -356,4 +357,34 @@ model ForumSave {
 
   @@id([postId, userId])
   @@map("ForumSave")
+}
+
+// ==========================================
+// AI CHAT MODELS
+// ==========================================
+
+model ChatSession {
+  id          BigInt   @id @default(autoincrement())
+  userId      BigInt
+  title       String?  @db.VarChar
+  destination String?  @db.VarChar
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime @updatedAt @db.Timestamp(6)
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    ChatMessage[]
+
+  @@map("ChatSession")
+}
+
+model ChatMessage {
+  id          BigInt   @id @default(autoincrement())
+  sessionId   BigInt
+  role        String   @db.VarChar(50) // 'USER' or 'AI'
+  content     String   @db.Text
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+
+  session     ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("ChatMessage")
 }

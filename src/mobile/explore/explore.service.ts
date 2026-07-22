@@ -3,7 +3,7 @@ import { PrismaService } from '../../shared/prisma/prisma.service';
 
 @Injectable()
 export class ExploreService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async findAll(destination?: string) {
     const whereClause: any = {
@@ -14,7 +14,7 @@ export class ExploreService {
       const searchKeyword = destination.split(',')[0].trim();
       whereClause.OR = [
         { title: { contains: searchKeyword, mode: 'insensitive' } },
-        { destination: { contains: searchKeyword, mode: 'insensitive' } }
+        { destination: { contains: searchKeyword, mode: 'insensitive' } },
       ];
     }
 
@@ -27,10 +27,10 @@ export class ExploreService {
             email: true,
             fullName: true,
             avatar: true,
-          }
+          },
         },
         likes: {
-          select: { userId: true }
+          select: { userId: true },
         },
       },
       orderBy: {
@@ -55,10 +55,10 @@ export class ExploreService {
             email: true,
             fullName: true,
             avatar: true,
-          }
+          },
         },
         likes: {
-          select: { userId: true }
+          select: { userId: true },
         },
         items: {
           orderBy: {
@@ -72,14 +72,14 @@ export class ExploreService {
                   take: 5,
                   orderBy: {
                     publishedDate: 'desc',
-                  }
+                  },
                 },
-              }
+              },
             },
             featuredReview: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     if (!post) {
@@ -115,7 +115,7 @@ export class ExploreService {
             },
             {
               // Only include places from scenic categories
-              categoryId: { in: SCENIC_CATEGORY_IDS.map(id => BigInt(id)) },
+              categoryId: { in: SCENIC_CATEGORY_IDS.map((id) => BigInt(id)) },
             },
           ],
         },
@@ -135,38 +135,80 @@ export class ExploreService {
 
     // Additionally filter by subCategories JSON - keep only scenic types
     const SCENIC_TYPES = [
-      'tourist_attraction', 'natural_feature', 'park', 'point_of_interest',
-      'establishment', 'landmark', 'monument', 'place_of_worship', 'museum',
-      'amusement_park', 'aquarium', 'art_gallery', 'zoo', 'stadium',
-      'campground', 'rv_park', 'cemetery', 'church', 'hindu_temple',
-      'mosque', 'synagogue', 'travel_agency',
+      'tourist_attraction',
+      'natural_feature',
+      'park',
+      'point_of_interest',
+      'establishment',
+      'landmark',
+      'monument',
+      'place_of_worship',
+      'museum',
+      'amusement_park',
+      'aquarium',
+      'art_gallery',
+      'zoo',
+      'stadium',
+      'campground',
+      'rv_park',
+      'cemetery',
+      'church',
+      'hindu_temple',
+      'mosque',
+      'synagogue',
+      'travel_agency',
     ];
 
     const EXCLUDED_TYPES = [
-      'restaurant', 'food', 'bar', 'cafe', 'bakery', 'meal_delivery',
-      'meal_takeaway', 'lodging', 'hotel', 'motel', 'shopping_mall',
-      'store', 'supermarket', 'grocery_or_supermarket', 'hospital',
-      'school', 'university', 'bank', 'atm', 'gas_station',
+      'restaurant',
+      'food',
+      'bar',
+      'cafe',
+      'bakery',
+      'meal_delivery',
+      'meal_takeaway',
+      'lodging',
+      'hotel',
+      'motel',
+      'shopping_mall',
+      'store',
+      'supermarket',
+      'grocery_or_supermarket',
+      'hospital',
+      'school',
+      'university',
+      'bank',
+      'atm',
+      'gas_station',
     ];
 
-    const filtered = photos.filter(photo => {
+    const filtered = photos.filter((photo) => {
       const sub = photo.place?.subCategories;
       if (!sub) return true; // if no subCategories, include by default
 
-      const types = (Array.isArray(sub) ? sub : (typeof sub === 'object' ? Object.values(sub as any).flat() : [])) as string[];
+      const types = (
+        Array.isArray(sub)
+          ? sub
+          : typeof sub === 'object'
+            ? Object.values(sub as any).flat()
+            : []
+      ) as string[];
 
-      const hasExcluded = types.some(t => EXCLUDED_TYPES.includes(t));
+      const hasExcluded = types.some((t) => EXCLUDED_TYPES.includes(t));
       if (hasExcluded) return false;
 
       // If has scenic types, definitely include
-      const hasScenic = types.some(t => SCENIC_TYPES.includes(t));
+      const hasScenic = types.some((t) => SCENIC_TYPES.includes(t));
       return hasScenic || types.length === 0;
     });
 
     const paged = filtered.slice(0, pageSize);
 
     return {
-      results: paged.map(p => ({ url: p.urlOriginal || p.urlThumbnail, name: p.place?.name })),
+      results: paged.map((p) => ({
+        url: p.urlOriginal || p.urlThumbnail,
+        name: p.place?.name,
+      })),
       page,
       hasMore: filtered.length > pageSize,
     };
@@ -193,7 +235,7 @@ export class ExploreService {
       },
       include: {
         items: true,
-      }
+      },
     });
   }
 
@@ -269,16 +311,16 @@ export class ExploreService {
     const pId = BigInt(postId);
     const uId = BigInt(userId);
     const existing = await this.prisma.explorePostLike.findUnique({
-      where: { postId_userId: { postId: pId, userId: uId } }
+      where: { postId_userId: { postId: pId, userId: uId } },
     });
 
     if (!existing) {
       await this.prisma.explorePostLike.create({
-        data: { postId: pId, userId: uId }
+        data: { postId: pId, userId: uId },
       });
       await this.prisma.explorePost.update({
         where: { id: pId },
-        data: { likeCount: { increment: 1 } }
+        data: { likeCount: { increment: 1 } },
       });
     }
     return { success: true };
@@ -288,16 +330,16 @@ export class ExploreService {
     const pId = BigInt(postId);
     const uId = BigInt(userId);
     const existing = await this.prisma.explorePostLike.findUnique({
-      where: { postId_userId: { postId: pId, userId: uId } }
+      where: { postId_userId: { postId: pId, userId: uId } },
     });
 
     if (existing) {
       await this.prisma.explorePostLike.delete({
-        where: { postId_userId: { postId: pId, userId: uId } }
+        where: { postId_userId: { postId: pId, userId: uId } },
       });
       await this.prisma.explorePost.update({
         where: { id: pId },
-        data: { likeCount: { decrement: 1 } }
+        data: { likeCount: { decrement: 1 } },
       });
     }
     return { success: true };
@@ -329,4 +371,3 @@ export class ExploreService {
     });
   }
 }
-

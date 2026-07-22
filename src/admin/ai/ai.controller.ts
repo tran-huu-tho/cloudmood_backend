@@ -8,7 +8,9 @@ export class AiController {
   @Post('chat')
   async chat(@Body() body: { message: string; history?: any[] }) {
     if (!body.message || typeof body.message !== 'string') {
-      throw new BadRequestException('Trường "message" là bắt buộc và phải là một chuỗi.');
+      throw new BadRequestException(
+        'Trường "message" là bắt buộc và phải là một chuỗi.',
+      );
     }
     return this.aiService.chat(body.message, body.history || []);
   }

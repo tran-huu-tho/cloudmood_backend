@@ -23,7 +23,11 @@ export class PlacesService {
   ) {
     const where: any = { isApproved: true };
 
-    if (categoryName && categoryName !== 'Tất cả' && categoryName !== 'Nổi bật') {
+    if (
+      categoryName &&
+      categoryName !== 'Tất cả' &&
+      categoryName !== 'Nổi bật'
+    ) {
       const category = await this.prisma.category.findFirst({
         where: { name: categoryName },
       });
@@ -60,15 +64,17 @@ export class PlacesService {
     });
 
     if (amenities && amenities.length > 0) {
-      places = places.filter(place => {
+      places = places.filter((place) => {
         if (!place.subCategories) return false;
         try {
           const placeAms: any[] = Array.isArray(place.subCategories)
             ? place.subCategories
             : JSON.parse(place.subCategories as string);
           if (!Array.isArray(placeAms)) return false;
-          return amenities.every(am =>
-            placeAms.some(pAm => pAm.toString().toLowerCase().includes(am.toLowerCase()))
+          return amenities.every((am) =>
+            placeAms.some((pAm) =>
+              pAm.toString().toLowerCase().includes(am.toLowerCase()),
+            ),
           );
         } catch (e) {
           return false;
@@ -81,7 +87,7 @@ export class PlacesService {
       places.sort((a, b) => {
         const normNameA = this.removeAccents(a.name);
         const normNameB = this.removeAccents(b.name);
-        
+
         const getScore = (name: string) => {
           if (name === normalizedQuery) return 3;
           if (name.startsWith(normalizedQuery)) return 2;
@@ -129,7 +135,7 @@ export class PlacesService {
   }
 
   // --- New Feature: Search Places combining DB & Geoapify ---
-  
+
   // Cache to avoid geocoding the same destination repeatedly
   private destinationCache: Record<string, string> = {};
 
@@ -153,17 +159,23 @@ export class PlacesService {
     amenities?: string[],
   ) {
     const geoapifyKey = this.configService.get<string>('GEOAPIFY_API_KEY');
-    let results: any[] = [];
+    const results: any[] = [];
 
     // 1. Search in local database
     // If categoryName provided, do partial/insensitive match on category name
     let categoryId: bigint | undefined;
-    if (categoryName && categoryName.trim() !== '' && categoryName !== 'Tất cả' && categoryName !== 'Nổi bật') {
+    if (
+      categoryName &&
+      categoryName.trim() !== '' &&
+      categoryName !== 'Tất cả' &&
+      categoryName !== 'Nổi bật'
+    ) {
       const normalizedCat = this.removeAccents(categoryName.trim());
       const allCategories = await this.prisma.category.findMany();
-      const matchedCat = allCategories.find(c =>
-        this.removeAccents(c.name).includes(normalizedCat) ||
-        normalizedCat.includes(this.removeAccents(c.name))
+      const matchedCat = allCategories.find(
+        (c) =>
+          this.removeAccents(c.name).includes(normalizedCat) ||
+          normalizedCat.includes(this.removeAccents(c.name)),
       );
       if (matchedCat) {
         categoryId = matchedCat.id;
@@ -189,15 +201,17 @@ export class PlacesService {
     });
 
     if (amenities && amenities.length > 0) {
-      localPlaces = localPlaces.filter(place => {
+      localPlaces = localPlaces.filter((place) => {
         if (!place.subCategories) return false;
         try {
           const placeAms: any[] = Array.isArray(place.subCategories)
             ? place.subCategories
             : JSON.parse(place.subCategories as string);
           if (!Array.isArray(placeAms)) return false;
-          return amenities.every(am =>
-            placeAms.some(pAm => pAm.toString().toLowerCase().includes(am.toLowerCase()))
+          return amenities.every((am) =>
+            placeAms.some((pAm) =>
+              pAm.toString().toLowerCase().includes(am.toLowerCase()),
+            ),
           );
         } catch (e) {
           return false;
@@ -210,35 +224,35 @@ export class PlacesService {
     if (destination && destination.trim() !== '') {
       const cityOnly = destination.split(',')[0].trim();
       const normalizedDest = this.removeAccents(cityOnly);
-      const destWords = normalizedDest.split(/\s+/).filter(w => w.length > 1);
-      localPlaces = localPlaces.filter(place => {
+      const destWords = normalizedDest.split(/\s+/).filter((w) => w.length > 1);
+      localPlaces = localPlaces.filter((place) => {
         const normalizedName = this.removeAccents(place.name);
         const normalizedAddress = this.removeAccents(place.address);
         const searchableText = `${normalizedName} ${normalizedAddress}`;
         // Match if ALL significant destination words found in place name or address
-        return destWords.every(word => searchableText.includes(word));
+        return destWords.every((word) => searchableText.includes(word));
       });
     }
-    
+
     // In-memory filter for query to support accent-insensitive matching
     if (query && query.trim() !== '') {
       const normalizedQuery = this.removeAccents(query.trim());
       const queryWords = normalizedQuery.split(/\s+/);
-      
-      localPlaces = localPlaces.filter(place => {
+
+      localPlaces = localPlaces.filter((place) => {
         const normalizedName = this.removeAccents(place.name);
         const normalizedAddress = this.removeAccents(place.address);
         const searchableText = `${normalizedName} ${normalizedAddress}`;
-        
+
         // Every word in the query must exist in the searchable text
-        return queryWords.every(word => searchableText.includes(word));
+        return queryWords.every((word) => searchableText.includes(word));
       });
 
       // Sort results by relevance: Name exact match > Name starts with > Name contains > Address match
       localPlaces.sort((a, b) => {
         const normNameA = this.removeAccents(a.name);
         const normNameB = this.removeAccents(b.name);
-        
+
         const getScore = (name: string) => {
           if (name === normalizedQuery) return 3;
           if (name.startsWith(normalizedQuery)) return 2;
@@ -303,7 +317,7 @@ export class PlacesService {
               'Điểm tham quan': 'tourism.attraction',
               'Địa điểm tham quan': 'tourism.attraction',
             };
-            
+
             const geoCat = categoryMap[categoryName];
             if (geoCat) {
               const placesUrl = `https://api.geoapify.com/v2/places?categories=${geoCat}&filter=place:${destPlaceId}&limit=15&apiKey=${geoapifyKey}`;
@@ -323,7 +337,9 @@ export class PlacesService {
                 address: props.formatted || props.address_line2 || '',
                 latitude: props.lat,
                 longitude: props.lon,
-                description: props.categories ? props.categories.join(', ') : '',
+                description: props.categories
+                  ? props.categories.join(', ')
+                  : '',
                 price: 'Liên hệ',
                 categoryId: null, // Let app handle if null
                 image: 'https://via.placeholder.com/300?text=No+Image', // Geoapify free doesn't give images easily
@@ -334,7 +350,9 @@ export class PlacesService {
             });
 
           // Merge and filter duplicates (simple name match)
-          const localNames = new Set(localPlaces.map(p => p.name.toLowerCase()));
+          const localNames = new Set(
+            localPlaces.map((p) => p.name.toLowerCase()),
+          );
           for (const geoPlace of mappedGeoapify) {
             if (!localNames.has(geoPlace.name.toLowerCase())) {
               results.push(geoPlace);
@@ -365,7 +383,9 @@ export class PlacesService {
 
   async proposePlace(data: any) {
     if (!data.name || !data.categoryId) {
-      throw new BadRequestException('Tên địa điểm và Danh mục không được để trống.');
+      throw new BadRequestException(
+        'Tên địa điểm và Danh mục không được để trống.',
+      );
     }
 
     return this.prisma.place.create({
@@ -373,7 +393,8 @@ export class PlacesService {
         name: data.name,
         description: data.description || '',
         latitude: data.latitude !== undefined ? parseFloat(data.latitude) : 0.0,
-        longitude: data.longitude !== undefined ? parseFloat(data.longitude) : 0.0,
+        longitude:
+          data.longitude !== undefined ? parseFloat(data.longitude) : 0.0,
         address: data.address || '',
         price: data.price || 'Liên hệ',
         categoryId: BigInt(data.categoryId),

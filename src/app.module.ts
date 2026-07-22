@@ -34,5 +34,4 @@ import { ForumModule } from './mobile/forum/forum.module';
   controllers: [],
   providers: [],
 })
-export class AppModule { }
-
+export class AppModule {}

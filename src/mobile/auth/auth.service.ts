@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -11,16 +15,28 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  private verificationCodes = new Map<string, { code: string; expiresAt: number }>();
+  private verificationCodes = new Map<
+    string,
+    { code: string; expiresAt: number }
+  >();
 
-  private async sendMail(to: string, subject: string, text: string, html: string) {
-    console.log(`\n========================================\n📧 [EMAIL SENT TO: ${to}]\nSubject: ${subject}\nContent: ${text}\n========================================\n`);
+  private async sendMail(
+    to: string,
+    subject: string,
+    text: string,
+    html: string,
+  ) {
+    console.log(
+      `\n========================================\n📧 [EMAIL SENT TO: ${to}]\nSubject: ${subject}\nContent: ${text}\n========================================\n`,
+    );
 
     try {
       const nodemailer = require('nodemailer');
-      
+
       if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
-        console.log('ℹ️ SMTP is not configured in .env. Real email delivery skipped.');
+        console.log(
+          'ℹ️ SMTP is not configured in .env. Real email delivery skipped.',
+        );
         return;
       }
 
@@ -91,7 +107,12 @@ export class AuthService {
       </div>
     `;
 
-    await this.sendMail(normalizedEmail, 'Mã xác thực đăng ký tài khoản Cloudmood', text, html);
+    await this.sendMail(
+      normalizedEmail,
+      'Mã xác thực đăng ký tài khoản Cloudmood',
+      text,
+      html,
+    );
 
     return {
       success: true,
@@ -103,7 +124,9 @@ export class AuthService {
     const normalizedEmail = data.email.toLowerCase().trim();
     const cached = this.verificationCodes.get(normalizedEmail);
     if (!cached || cached.code !== data.code || Date.now() > cached.expiresAt) {
-      throw new BadRequestException('Mã xác thực không hợp lệ hoặc đã hết hạn.');
+      throw new BadRequestException(
+        'Mã xác thực không hợp lệ hoặc đã hết hạn.',
+      );
     }
 
     const existingUser = await this.prisma.user.findUnique({
@@ -119,10 +142,14 @@ export class AuthService {
     const hasUppercase = /[A-Z]/.test(data.password);
     const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(data.password);
     if (!hasUppercase) {
-      throw new BadRequestException('Mật khẩu phải chứa ít nhất 1 chữ viết hoa.');
+      throw new BadRequestException(
+        'Mật khẩu phải chứa ít nhất 1 chữ viết hoa.',
+      );
     }
     if (!hasSpecialChar) {
-      throw new BadRequestException('Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt.');
+      throw new BadRequestException(
+        'Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
@@ -139,7 +166,10 @@ export class AuthService {
 
     this.verificationCodes.delete(normalizedEmail);
 
-    const token = this.jwtService.sign({ sub: user.id.toString(), email: user.email });
+    const token = this.jwtService.sign({
+      sub: user.id.toString(),
+      email: user.email,
+    });
     const { password: _, ...userWithoutPassword } = user;
 
     return {
@@ -197,7 +227,12 @@ export class AuthService {
       </div>
     `;
 
-    await this.sendMail(normalizedEmail, 'Mã xác thực khôi phục mật khẩu Cloudmood', text, html);
+    await this.sendMail(
+      normalizedEmail,
+      'Mã xác thực khôi phục mật khẩu Cloudmood',
+      text,
+      html,
+    );
 
     return {
       success: true,
@@ -209,7 +244,9 @@ export class AuthService {
     const normalizedEmail = data.email.toLowerCase().trim();
     const cached = this.verificationCodes.get('reset_' + normalizedEmail);
     if (!cached || cached.code !== data.code || Date.now() > cached.expiresAt) {
-      throw new BadRequestException('Mã xác thực không hợp lệ hoặc đã hết hạn.');
+      throw new BadRequestException(
+        'Mã xác thực không hợp lệ hoặc đã hết hạn.',
+      );
     }
 
     const user = await this.prisma.user.findUnique({
@@ -225,10 +262,14 @@ export class AuthService {
     const hasUppercase = /[A-Z]/.test(data.newPassword);
     const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(data.newPassword);
     if (!hasUppercase) {
-      throw new BadRequestException('Mật khẩu mới phải chứa ít nhất 1 chữ viết hoa.');
+      throw new BadRequestException(
+        'Mật khẩu mới phải chứa ít nhất 1 chữ viết hoa.',
+      );
     }
     if (!hasSpecialChar) {
-      throw new BadRequestException('Mật khẩu mới phải chứa ít nhất 1 ký tự đặc biệt.');
+      throw new BadRequestException(
+        'Mật khẩu mới phải chứa ít nhất 1 ký tự đặc biệt.',
+      );
     }
 
     const hashedNewPassword = await bcrypt.hash(data.newPassword, 10);
@@ -259,10 +300,14 @@ export class AuthService {
     const hasUppercase = /[A-Z]/.test(data.password);
     const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(data.password);
     if (!hasUppercase) {
-      throw new BadRequestException('Mật khẩu phải chứa ít nhất 1 chữ viết hoa.');
+      throw new BadRequestException(
+        'Mật khẩu phải chứa ít nhất 1 chữ viết hoa.',
+      );
     }
     if (!hasSpecialChar) {
-      throw new BadRequestException('Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt.');
+      throw new BadRequestException(
+        'Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
@@ -278,9 +323,12 @@ export class AuthService {
       },
     });
 
-    const token = this.jwtService.sign({ sub: user.id.toString(), email: user.email });
+    const token = this.jwtService.sign({
+      sub: user.id.toString(),
+      email: user.email,
+    });
     const { password: _, ...userWithoutPassword } = user;
-    
+
     return {
       success: true,
       message: 'Đăng ký tài khoản thành công!',
@@ -312,7 +360,10 @@ export class AuthService {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác.');
     }
 
-    const token = this.jwtService.sign({ sub: user.id.toString(), email: user.email });
+    const token = this.jwtService.sign({
+      sub: user.id.toString(),
+      email: user.email,
+    });
     const { password: _, ...userWithoutPassword } = user;
 
     return {
@@ -356,7 +407,10 @@ export class AuthService {
 
     let isCurrentPasswordCorrect = false;
     if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
-      isCurrentPasswordCorrect = await bcrypt.compare(data.currentPassword, user.password);
+      isCurrentPasswordCorrect = await bcrypt.compare(
+        data.currentPassword,
+        user.password,
+      );
     } else {
       isCurrentPasswordCorrect = user.password === data.currentPassword;
     }
@@ -371,10 +425,14 @@ export class AuthService {
     const hasUppercase = /[A-Z]/.test(data.newPassword);
     const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(data.newPassword);
     if (!hasUppercase) {
-      throw new BadRequestException('Mật khẩu mới phải chứa ít nhất 1 chữ viết hoa.');
+      throw new BadRequestException(
+        'Mật khẩu mới phải chứa ít nhất 1 chữ viết hoa.',
+      );
     }
     if (!hasSpecialChar) {
-      throw new BadRequestException('Mật khẩu mới phải chứa ít nhất 1 ký tự đặc biệt.');
+      throw new BadRequestException(
+        'Mật khẩu mới phải chứa ít nhất 1 ký tự đặc biệt.',
+      );
     }
 
     const hashedNewPassword = await bcrypt.hash(data.newPassword, 10);
@@ -401,22 +459,23 @@ export class AuthService {
       try {
         if (data.provider === 'google.com') {
           const response = await axios.get(
-            `https://oauth2.googleapis.com/tokeninfo?id_token=${data.token}`
+            `https://oauth2.googleapis.com/tokeninfo?id_token=${data.token}`,
           );
           email = response.data.email || email;
           fullName = response.data.name || fullName;
           avatarUrl = response.data.picture || avatarUrl;
         } else if (data.provider === 'facebook.com') {
           const response = await axios.get(
-            `https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${data.token}`
+            `https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${data.token}`,
           );
-          email = response.data.email || email || `${response.data.id}@facebook.com`;
+          email =
+            response.data.email || email || `${response.data.id}@facebook.com`;
           fullName = response.data.name || fullName;
           avatarUrl = response.data.picture?.data?.url || avatarUrl;
         } else if (firebaseApiKey) {
           const response = await axios.post(
             `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseApiKey}`,
-            { idToken: data.token }
+            { idToken: data.token },
           );
           const firebaseUser = response.data.users?.[0];
           if (firebaseUser) {
@@ -428,8 +487,13 @@ export class AuthService {
           }
         }
       } catch (error: any) {
-        console.error('Social token verification failed:', error.response?.data || error.message);
-        throw new UnauthorizedException('Xác thực tài khoản mạng xã hội thất bại.');
+        console.error(
+          'Social token verification failed:',
+          error.response?.data || error.message,
+        );
+        throw new UnauthorizedException(
+          'Xác thực tài khoản mạng xã hội thất bại.',
+        );
       }
     }
 
@@ -444,7 +508,10 @@ export class AuthService {
 
     if (!user) {
       // Create user with a random hashed password since they log in via social OAuth
-      const randomPassword = await bcrypt.hash(Math.random().toString(36).substring(2, 15), 10);
+      const randomPassword = await bcrypt.hash(
+        Math.random().toString(36).substring(2, 15),
+        10,
+      );
       user = await this.prisma.user.create({
         data: {
           fullName: fullName || 'Người dùng Google/Facebook',
@@ -466,7 +533,10 @@ export class AuthService {
       });
     }
 
-    const token = this.jwtService.sign({ sub: user.id.toString(), email: user.email });
+    const token = this.jwtService.sign({
+      sub: user.id.toString(),
+      email: user.email,
+    });
     const { password: _, ...userWithoutPassword } = user;
 
     return {

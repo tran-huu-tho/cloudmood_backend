@@ -16,7 +16,8 @@ export class NotificationsService {
       id: 1,
       type: 'warning',
       title: 'Đánh giá mới cần kiểm duyệt',
-      message: 'Có 1 nhận xét 1 sao mới tại "Quán Ăn Cây Trứng Cá" cần admin xử lý.',
+      message:
+        'Có 1 nhận xét 1 sao mới tại "Quán Ăn Cây Trứng Cá" cần admin xử lý.',
       createdAt: new Date(Date.now() - 5 * 60000), // 5 mins ago
       isRead: false,
     },
@@ -24,7 +25,8 @@ export class NotificationsService {
       id: 2,
       type: 'rotation',
       title: 'Xoay vòng API Key thành công',
-      message: 'Key số 1 bị cạn hạn ngạch (429). Đã tự động xoay vòng sang Key số 2.',
+      message:
+        'Key số 1 bị cạn hạn ngạch (429). Đã tự động xoay vòng sang Key số 2.',
       createdAt: new Date(Date.now() - 15 * 60000), // 15 mins ago
       isRead: false,
     },
@@ -35,7 +37,7 @@ export class NotificationsService {
       message: 'Cấu hình hoàn tất 9 API Key mới. Khả năng xử lý tăng mạnh.',
       createdAt: new Date(Date.now() - 60 * 60000), // 1 hour ago
       isRead: false,
-    }
+    },
   ];
   private nextId = 4;
 
@@ -43,7 +45,11 @@ export class NotificationsService {
     return this.notifications;
   }
 
-  addNotification(type: 'warning' | 'rotation' | 'info', title: string, message: string) {
+  addNotification(
+    type: 'warning' | 'rotation' | 'info',
+    title: string,
+    message: string,
+  ) {
     const item: NotificationItem = {
       id: this.nextId++,
       type,
@@ -53,7 +59,7 @@ export class NotificationsService {
       isRead: false,
     };
     this.notifications.unshift(item);
-    
+
     // Keep max 30 items
     if (this.notifications.length > 30) {
       this.notifications = this.notifications.slice(0, 30);
@@ -62,7 +68,10 @@ export class NotificationsService {
   }
 
   markAllAsRead() {
-    this.notifications = this.notifications.map(n => ({ ...n, isRead: true }));
+    this.notifications = this.notifications.map((n) => ({
+      ...n,
+      isRead: true,
+    }));
   }
 
   clearAll() {

@@ -107,9 +107,10 @@ export class ForumController {
       }
     }
 
-    const parsedPlaceId = placeId && placeId !== 'null' && placeId !== 'undefined'
-      ? Number(placeId)
-      : undefined;
+    const parsedPlaceId =
+      placeId && placeId !== 'null' && placeId !== 'undefined'
+        ? Number(placeId)
+        : undefined;
 
     return this.forumService.createPost(
       userId,
@@ -159,11 +160,20 @@ export class ForumController {
         mediaUrl = uploadResult.secure_url || uploadResult.url;
         mediaType = isVideo ? 'VIDEO' : 'IMAGE';
       } catch (error) {
-        console.error('Lỗi khi tải tệp đính kèm bình luận lên Cloudinary:', error);
+        console.error(
+          'Lỗi khi tải tệp đính kèm bình luận lên Cloudinary:',
+          error,
+        );
       }
     }
 
-    return this.forumService.addComment(id, userId, content, mediaUrl, mediaType);
+    return this.forumService.addComment(
+      id,
+      userId,
+      content,
+      mediaUrl,
+      mediaType,
+    );
   }
 
   // 6.2 Xóa bình luận bài viết
@@ -251,9 +261,10 @@ export class ForumController {
       }
     }
 
-    const parsedPlaceId = placeId && placeId !== 'null' && placeId !== 'undefined'
-      ? Number(placeId)
-      : undefined;
+    const parsedPlaceId =
+      placeId && placeId !== 'null' && placeId !== 'undefined'
+        ? Number(placeId)
+        : undefined;
 
     return this.forumService.updatePost(
       id,

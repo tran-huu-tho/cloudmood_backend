@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 
@@ -8,13 +12,14 @@ export class AdminService {
 
   // 1. Dashboard & Statistics
   async getDashboardStats() {
-    const [userCount, placeCount, itineraryCount, reviewCount, categoryCount] = await Promise.all([
-      this.prisma.user.count(),
-      this.prisma.place.count(),
-      this.prisma.itinerary.count(),
-      this.prisma.review.count(),
-      this.prisma.category.count(),
-    ]);
+    const [userCount, placeCount, itineraryCount, reviewCount, categoryCount] =
+      await Promise.all([
+        this.prisma.user.count(),
+        this.prisma.place.count(),
+        this.prisma.itinerary.count(),
+        this.prisma.review.count(),
+        this.prisma.category.count(),
+      ]);
 
     const recentReviews = await this.prisma.review.findMany({
       orderBy: { id: 'desc' },
@@ -79,7 +84,7 @@ export class AdminService {
     ]);
 
     // Format BigInt values to string or number, exclude passwords
-    const formattedUsers = users.map(user => {
+    const formattedUsers = users.map((user) => {
       const { password, ...result } = user;
       return result;
     });
@@ -93,7 +98,9 @@ export class AdminService {
 
   async createUser(data: any) {
     if (!data.email || !data.password || !data.fullName) {
-      throw new BadRequestException('Vui lòng cung cấp đầy đủ thông tin: Email, Mật khẩu và Họ tên.');
+      throw new BadRequestException(
+        'Vui lòng cung cấp đầy đủ thông tin: Email, Mật khẩu và Họ tên.',
+      );
     }
 
     const existingUser = await this.prisma.user.findUnique({
@@ -101,7 +108,9 @@ export class AdminService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email này đã được sử dụng bởi một tài khoản khác.');
+      throw new ConflictException(
+        'Email này đã được sử dụng bởi một tài khoản khác.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
@@ -159,7 +168,9 @@ export class AdminService {
 
   async updateCategory(id: string, data: any) {
     const categoryId = BigInt(id);
-    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
     if (!category) {
       throw new BadRequestException('Danh mục không tồn tại.');
     }
@@ -175,7 +186,9 @@ export class AdminService {
 
   async deleteCategory(id: string) {
     const categoryId = BigInt(id);
-    const category = await this.prisma.category.findUnique({ where: { id: categoryId } });
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
     if (!category) {
       throw new BadRequestException('Danh mục không tồn tại.');
     }
@@ -186,7 +199,9 @@ export class AdminService {
     });
 
     if (placesCount > 0) {
-      throw new BadRequestException(`Không thể xóa danh mục này vì đang có ${placesCount} địa điểm thuộc danh mục này.`);
+      throw new BadRequestException(
+        `Không thể xóa danh mục này vì đang có ${placesCount} địa điểm thuộc danh mục này.`,
+      );
     }
 
     return this.prisma.category.delete({
@@ -196,11 +211,11 @@ export class AdminService {
 
   // 4. Places & Photos Management
   async getPlaces(
-    search?: string, 
-    categoryId?: string, 
-    page: number = 1, 
+    search?: string,
+    categoryId?: string,
+    page: number = 1,
     limit: number = 15,
-    isApproved?: string
+    isApproved?: string,
   ) {
     const skip = (page - 1) * limit;
 
@@ -257,7 +272,9 @@ export class AdminService {
 
   async createPlace(data: any) {
     if (!data.name || !data.categoryId) {
-      throw new BadRequestException('Tên địa điểm và Danh mục không được để trống.');
+      throw new BadRequestException(
+        'Tên địa điểm và Danh mục không được để trống.',
+      );
     }
 
     return this.prisma.place.create({
@@ -271,7 +288,10 @@ export class AdminService {
         categoryId: BigInt(data.categoryId),
         image: data.image || '',
         rating: data.rating !== undefined ? parseFloat(data.rating) : null,
-        userRatingCount: data.userRatingCount !== undefined ? parseInt(data.userRatingCount) : null,
+        userRatingCount:
+          data.userRatingCount !== undefined
+            ? parseInt(data.userRatingCount)
+            : null,
         phone: data.phone || null,
         website: data.website || null,
         priceLevel: data.priceLevel || null,
@@ -285,7 +305,9 @@ export class AdminService {
 
   async updatePlace(id: string, data: any) {
     const placeId = BigInt(id);
-    const place = await this.prisma.place.findUnique({ where: { id: placeId } });
+    const place = await this.prisma.place.findUnique({
+      where: { id: placeId },
+    });
     if (!place) {
       throw new BadRequestException('Địa điểm không tồn tại.');
     }
@@ -294,23 +316,57 @@ export class AdminService {
       where: { id: placeId },
       data: {
         name: data.name,
-        description: data.description !== undefined ? data.description : place.description,
-        latitude: data.latitude !== undefined ? parseFloat(data.latitude) : place.latitude,
-        longitude: data.longitude !== undefined ? parseFloat(data.longitude) : place.longitude,
+        description:
+          data.description !== undefined ? data.description : place.description,
+        latitude:
+          data.latitude !== undefined
+            ? parseFloat(data.latitude)
+            : place.latitude,
+        longitude:
+          data.longitude !== undefined
+            ? parseFloat(data.longitude)
+            : place.longitude,
         address: data.address !== undefined ? data.address : place.address,
         price: data.price !== undefined ? data.price : place.price,
-        categoryId: data.categoryId !== undefined ? BigInt(data.categoryId) : place.categoryId,
+        categoryId:
+          data.categoryId !== undefined
+            ? BigInt(data.categoryId)
+            : place.categoryId,
         image: data.image !== undefined ? data.image : place.image,
-        rating: data.rating !== undefined ? (data.rating !== null ? parseFloat(data.rating) : null) : place.rating,
-        userRatingCount: data.userRatingCount !== undefined ? (data.userRatingCount !== null ? parseInt(data.userRatingCount) : null) : place.userRatingCount,
+        rating:
+          data.rating !== undefined
+            ? data.rating !== null
+              ? parseFloat(data.rating)
+              : null
+            : place.rating,
+        userRatingCount:
+          data.userRatingCount !== undefined
+            ? data.userRatingCount !== null
+              ? parseInt(data.userRatingCount)
+              : null
+            : place.userRatingCount,
         phone: data.phone !== undefined ? data.phone : place.phone,
         website: data.website !== undefined ? data.website : place.website,
-        priceLevel: data.priceLevel !== undefined ? data.priceLevel : place.priceLevel,
-        tripadvisorUrl: data.tripadvisorUrl !== undefined ? data.tripadvisorUrl : place.tripadvisorUrl,
-        openingHours: data.openingHours !== undefined ? data.openingHours : place.openingHours ?? {},
-        subCategories: data.subCategories !== undefined ? data.subCategories : place.subCategories ?? [],
-        externalId: data.externalId !== undefined ? data.externalId : place.externalId,
-        isApproved: data.isApproved !== undefined ? (data.isApproved === true || data.isApproved === 'true') : place.isApproved,
+        priceLevel:
+          data.priceLevel !== undefined ? data.priceLevel : place.priceLevel,
+        tripadvisorUrl:
+          data.tripadvisorUrl !== undefined
+            ? data.tripadvisorUrl
+            : place.tripadvisorUrl,
+        openingHours:
+          data.openingHours !== undefined
+            ? data.openingHours
+            : (place.openingHours ?? {}),
+        subCategories:
+          data.subCategories !== undefined
+            ? data.subCategories
+            : (place.subCategories ?? []),
+        externalId:
+          data.externalId !== undefined ? data.externalId : place.externalId,
+        isApproved:
+          data.isApproved !== undefined
+            ? data.isApproved === true || data.isApproved === 'true'
+            : place.isApproved,
         lastSyncedAt: new Date(),
       },
     });
@@ -318,7 +374,9 @@ export class AdminService {
 
   async deletePlace(id: string) {
     const placeId = BigInt(id);
-    const place = await this.prisma.place.findUnique({ where: { id: placeId } });
+    const place = await this.prisma.place.findUnique({
+      where: { id: placeId },
+    });
     if (!place) {
       throw new BadRequestException('Địa điểm không tồn tại.');
     }
@@ -370,7 +428,9 @@ export class AdminService {
         authorName: data.authorName,
         authorAvatar: data.authorAvatar || '/default-avatar.jpg',
         authorLocation: data.authorLocation || null,
-        publishedDate: data.publishedDate ? new Date(data.publishedDate) : new Date(),
+        publishedDate: data.publishedDate
+          ? new Date(data.publishedDate)
+          : new Date(),
         source: 'LOCAL',
       },
     });
@@ -396,7 +456,10 @@ export class AdminService {
         categoryId: BigInt(item.categoryId),
         image: item.image || '',
         rating: item.rating !== undefined ? parseFloat(item.rating) : null,
-        userRatingCount: item.userRatingCount !== undefined ? parseInt(item.userRatingCount) : null,
+        userRatingCount:
+          item.userRatingCount !== undefined
+            ? parseInt(item.userRatingCount)
+            : null,
         phone: item.phone || null,
         website: item.website || null,
         priceLevel: item.priceLevel || null,
@@ -433,7 +496,9 @@ export class AdminService {
 
   async deleteWeatherCache(id: string) {
     const cacheId = BigInt(id);
-    const cache = await this.prisma.weatherCache.findUnique({ where: { id: cacheId } });
+    const cache = await this.prisma.weatherCache.findUnique({
+      where: { id: cacheId },
+    });
     if (!cache) {
       throw new BadRequestException('Thành phố giám sát không tồn tại.');
     }

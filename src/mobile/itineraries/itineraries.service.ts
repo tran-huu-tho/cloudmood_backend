@@ -11,11 +11,21 @@ export class ItinerariesService {
 
   async fixDb() {
     try {
-      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItinerarySavedPlace" ADD COLUMN IF NOT EXISTS "startTime" text`);
-      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItinerarySavedPlace" ADD COLUMN IF NOT EXISTS "endTime" text`);
-      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "startTime" text`);
-      await this.prisma.$executeRawUnsafe(`ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "endTime" text`);
-      await this.prisma.$executeRawUnsafe(`ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "isGuide" boolean DEFAULT false`);
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "ItinerarySavedPlace" ADD COLUMN IF NOT EXISTS "startTime" text`,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "ItinerarySavedPlace" ADD COLUMN IF NOT EXISTS "endTime" text`,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "startTime" text`,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "endTime" text`,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "isGuide" boolean DEFAULT false`,
+      );
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
@@ -27,8 +37,12 @@ export class ItinerariesService {
       where: { userId: BigInt(userId), isGuide },
       include: {
         sections: true,
-        details: { include: { place: { include: { category: true, photos: true } } } },
-        savedPlaces: { include: { place: { include: { category: true, photos: true } } } },
+        details: {
+          include: { place: { include: { category: true, photos: true } } },
+        },
+        savedPlaces: {
+          include: { place: { include: { category: true, photos: true } } },
+        },
         explorePosts: {
           where: { status: 'PUBLISHED' },
           select: { id: true },
@@ -43,8 +57,12 @@ export class ItinerariesService {
       where: { id: BigInt(id) },
       include: {
         sections: true,
-        details: { include: { place: { include: { category: true, photos: true } } } },
-        savedPlaces: { include: { place: { include: { category: true, photos: true } } } },
+        details: {
+          include: { place: { include: { category: true, photos: true } } },
+        },
+        savedPlaces: {
+          include: { place: { include: { category: true, photos: true } } },
+        },
         explorePosts: {
           where: { status: 'PUBLISHED' },
           select: { id: true },
@@ -57,7 +75,9 @@ export class ItinerariesService {
     let weather: any = null;
     try {
       if (itinerary.destination) {
-        weather = await this.weatherService.getWeatherForCity(itinerary.destination);
+        weather = await this.weatherService.getWeatherForCity(
+          itinerary.destination,
+        );
       }
     } catch (e) {
       // Ignored: do not crash itinerary fetch if weather API is unreachable
@@ -69,7 +89,6 @@ export class ItinerariesService {
     };
   }
 
-
   async create(userId: string, data: any) {
     const itinerary = await this.prisma.itinerary.create({
       data: {
@@ -77,7 +96,8 @@ export class ItinerariesService {
         destination: data.destination,
         startDate: new Date(data.startDate ?? new Date()),
         days: data.days != null && data.days !== 0 ? BigInt(data.days) : null,
-        budget: data.budget != null && data.budget !== 0 ? BigInt(data.budget) : null,
+        budget:
+          data.budget != null && data.budget !== 0 ? BigInt(data.budget) : null,
         companion: data.companion || null,
         pace: data.pace || null,
         categories: data.categories ?? [],
@@ -96,7 +116,7 @@ export class ItinerariesService {
             colorCode: '4282057462',
             iconCode: 983363,
             sortOrder: 0,
-            sectionType: 'LIST'
+            sectionType: 'LIST',
           },
           {
             itineraryId: itinerary.id,
@@ -104,7 +124,7 @@ export class ItinerariesService {
             colorCode: '4282057462',
             iconCode: 983363,
             sortOrder: 1,
-            sectionType: 'ITINERARY'
+            sectionType: 'ITINERARY',
           },
           {
             itineraryId: itinerary.id,
@@ -112,9 +132,9 @@ export class ItinerariesService {
             colorCode: '4282057462',
             iconCode: 983363,
             sortOrder: 2,
-            sectionType: 'LIST'
-          }
-        ]
+            sectionType: 'LIST',
+          },
+        ],
       });
     } else {
       await this.prisma.itinerarySection.create({
@@ -124,7 +144,7 @@ export class ItinerariesService {
           colorCode: '4282057462',
           iconCode: 983363, // corresponds to Icons.looks_one_rounded.codePoint
           sortOrder: 0,
-          sectionType: 'LIST'
+          sectionType: 'LIST',
         },
       });
     }
@@ -157,7 +177,11 @@ export class ItinerariesService {
     });
   }
 
-  async shiftDetailsDays(itineraryId: number, targetDay: number, offset: number) {
+  async shiftDetailsDays(
+    itineraryId: number,
+    targetDay: number,
+    offset: number,
+  ) {
     const details = await this.prisma.itineraryDetail.findMany({
       where: { itineraryId: BigInt(itineraryId), day: { gt: targetDay } },
     });
@@ -230,7 +254,9 @@ export class ItinerariesService {
   }
 
   async deleteSavedPlace(id: number) {
-    return this.prisma.itinerarySavedPlace.delete({ where: { id: BigInt(id) } });
+    return this.prisma.itinerarySavedPlace.delete({
+      where: { id: BigInt(id) },
+    });
   }
 
   async deleteSavedPlacesBySection(itineraryId: number, section: string) {
@@ -241,7 +267,7 @@ export class ItinerariesService {
 
   async deleteMultipleSavedPlaces(ids: number[]) {
     return this.prisma.itinerarySavedPlace.deleteMany({
-      where: { id: { in: ids.map(id => BigInt(id)) } },
+      where: { id: { in: ids.map((id) => BigInt(id)) } },
     });
   }
 
@@ -288,7 +314,7 @@ export class ItinerariesService {
     if (categories.length === 0) {
       // Seed some default templates if empty
       const packingCat = await this.prisma.checklistTemplateCategory.create({
-        data: { name: 'Đồ dùng cá nhân', tabType: 'PACKING' }
+        data: { name: 'Đồ dùng cá nhân', tabType: 'PACKING' },
       });
       await this.prisma.checklistTemplateItem.createMany({
         data: [
@@ -297,11 +323,11 @@ export class ItinerariesService {
           { categoryId: packingCat.id, name: 'Sạc điện thoại / Sạc dự phòng' },
           { categoryId: packingCat.id, name: 'Đồ lót' },
           { categoryId: packingCat.id, name: 'Khăn tắm' },
-        ]
+        ],
       });
 
       const prepCat = await this.prisma.checklistTemplateCategory.create({
-        data: { name: 'Giấy tờ & Thủ tục', tabType: 'PRE_TRIP' }
+        data: { name: 'Giấy tờ & Thủ tục', tabType: 'PRE_TRIP' },
       });
       await this.prisma.checklistTemplateItem.createMany({
         data: [
@@ -309,7 +335,7 @@ export class ItinerariesService {
           { categoryId: prepCat.id, name: 'Vé máy bay / Xe' },
           { categoryId: prepCat.id, name: 'Tiền mặt & Thẻ tín dụng' },
           { categoryId: prepCat.id, name: 'Xác nhận đặt phòng khách sạn' },
-        ]
+        ],
       });
 
       categories = await this.prisma.checklistTemplateCategory.findMany({

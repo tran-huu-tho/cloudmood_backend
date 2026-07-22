@@ -9,7 +9,7 @@ export class WeatherController {
 
   /**
    * Lấy thời tiết hiện tại kèm theo gợi ý lịch trình
-   * Ví dụ: 
+   * Ví dụ:
    * GET /weather/current?cityName=Da Nang
    * GET /weather/current?lat=16.05&lon=108.20
    */
@@ -44,17 +44,19 @@ export class WeatherController {
    * Ví dụ: GET /weather/stream?cityName=Da Nang
    */
   @Sse('stream')
-  streamWeather(@Query('cityName') cityName?: string): Observable<MessageEvent> {
+  streamWeather(
+    @Query('cityName') cityName?: string,
+  ): Observable<MessageEvent> {
     const city = cityName || 'Da Nang';
-    
+
     // Tạo luồng tự động cập nhật thời tiết mỗi 5 phút
     return interval(300000).pipe(
       startWith(0), // Phát tín hiệu ngay lập tức khi kết nối vừa mở
       switchMap(() => from(this.weatherService.getWeatherForCity(city))),
-      map(data => ({
+      map((data) => ({
         data: data,
         type: 'weather_update',
-      } as MessageEvent)),
+      })),
     );
   }
 }

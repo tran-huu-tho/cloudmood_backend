@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { ForumGateway } from './forum.gateway';
 
@@ -72,18 +77,19 @@ export class ForumService {
   ) {
     const skip = (page - 1) * pageSize;
 
-    const whereCondition = query && query.trim().length > 0
-      ? {
-          OR: [
-            { content: { contains: query, mode: 'insensitive' as const } },
-            {
-              place: {
-                name: { contains: query, mode: 'insensitive' as const },
+    const whereCondition =
+      query && query.trim().length > 0
+        ? {
+            OR: [
+              { content: { contains: query, mode: 'insensitive' as const } },
+              {
+                place: {
+                  name: { contains: query, mode: 'insensitive' as const },
+                },
               },
-            },
-          ],
-        }
-      : {};
+            ],
+          }
+        : {};
 
     const posts = await this.prisma.forumPost.findMany({
       skip,
@@ -423,11 +429,13 @@ export class ForumService {
     }
 
     if (Number(comment.userId) !== userId) {
-      throw new ForbiddenException('Bạn không có quyền chỉnh sửa bình luận này');
+      throw new ForbiddenException(
+        'Bạn không có quyền chỉnh sửa bình luận này',
+      );
     }
 
     const finalContent = content !== undefined ? content : comment.content;
-    const hasMedia = clearMedia ? false : (mediaUrl || comment.mediaUrl);
+    const hasMedia = clearMedia ? false : mediaUrl || comment.mediaUrl;
 
     if ((!finalContent || finalContent.trim() === '') && !hasMedia) {
       throw new BadRequestException('Nội dung bình luận không được để trống');
@@ -572,17 +580,23 @@ export class ForumService {
       where: { id: BigInt(postId) },
       data: {
         content,
-        placeId: placeId !== undefined ? (placeId ? BigInt(placeId) : null) : undefined,
+        placeId:
+          placeId !== undefined
+            ? placeId
+              ? BigInt(placeId)
+              : null
+            : undefined,
         editedAt: new Date(),
-        media: newMedia && newMedia.length > 0
-          ? {
-              create: newMedia.map((m, index) => ({
-                url: m.url,
-                mediaType: m.mediaType,
-                sortOrder: index,
-              })),
-            }
-          : undefined,
+        media:
+          newMedia && newMedia.length > 0
+            ? {
+                create: newMedia.map((m, index) => ({
+                  url: m.url,
+                  mediaType: m.mediaType,
+                  sortOrder: index,
+                })),
+              }
+            : undefined,
       },
       include: {
         user: {
@@ -609,13 +623,15 @@ export class ForumService {
       },
     });
 
-    const isLiked = await this.prisma.forumLike.count({
-      where: { postId: BigInt(postId), userId: BigInt(userId) },
-    }) > 0;
+    const isLiked =
+      (await this.prisma.forumLike.count({
+        where: { postId: BigInt(postId), userId: BigInt(userId) },
+      })) > 0;
 
-    const isSaved = await this.prisma.forumSave.count({
-      where: { postId: BigInt(postId), userId: BigInt(userId) },
-    }) > 0;
+    const isSaved =
+      (await this.prisma.forumSave.count({
+        where: { postId: BigInt(postId), userId: BigInt(userId) },
+      })) > 0;
 
     const finalPost = {
       ...updated,

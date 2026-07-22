@@ -53,7 +53,12 @@ export class ForumGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // Phát sóng lượt thích mới
-  broadcastPostLikeUpdate(postId: string, likeCount: number, isLiked: boolean, userId: string) {
+  broadcastPostLikeUpdate(
+    postId: string,
+    likeCount: number,
+    isLiked: boolean,
+    userId: string,
+  ) {
     this.server.to(`post_${postId}`).emit('like_update', {
       postId,
       likeCount,
@@ -65,7 +70,11 @@ export class ForumGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // Phát sóng bình luận mới
-  broadcastPostCommentAdded(postId: string, comment: any, commentCount: number) {
+  broadcastPostCommentAdded(
+    postId: string,
+    comment: any,
+    commentCount: number,
+  ) {
     this.server.to(`post_${postId}`).emit('new_comment', {
       postId,
       comment,
@@ -76,7 +85,11 @@ export class ForumGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // Phát sóng xóa bình luận
-  broadcastPostCommentDeleted(postId: string, commentId: string, commentCount: number) {
+  broadcastPostCommentDeleted(
+    postId: string,
+    commentId: string,
+    commentCount: number,
+  ) {
     this.server.to(`post_${postId}`).emit('comment_deleted', {
       postId,
       commentId,

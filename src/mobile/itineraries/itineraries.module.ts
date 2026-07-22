@@ -10,4 +10,3 @@ import { WeatherModule } from '../../shared/weather/weather.module';
   controllers: [ItinerariesController],
 })
 export class ItinerariesModule {}
-

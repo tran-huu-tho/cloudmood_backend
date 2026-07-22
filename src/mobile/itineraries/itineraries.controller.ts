@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+  Request,
+  Query,
+} from '@nestjs/common';
 import { ItinerariesService } from './itineraries.service';
 import { AuthGuard } from '@nestjs/passport';
 
@@ -9,7 +20,10 @@ export class ItinerariesController {
 
   @Get()
   async findAll(@Request() req, @Query('isGuide') isGuide: string) {
-    return this.itinerariesService.findAllByUser(req.user.id.toString(), isGuide === 'true');
+    return this.itinerariesService.findAllByUser(
+      req.user.id.toString(),
+      isGuide === 'true',
+    );
   }
 
   @Get('fix-db')
@@ -44,11 +58,18 @@ export class ItinerariesController {
 
   @Post(':id/shift-details')
   async shiftDetails(@Param('id') id: string, @Body() body: any) {
-    return this.itinerariesService.shiftDetailsDays(+id, body.targetDay, body.offset);
+    return this.itinerariesService.shiftDetailsDays(
+      +id,
+      body.targetDay,
+      body.offset,
+    );
   }
 
   @Delete(':id/details/day/:day')
-  async deleteDetailsForDay(@Param('id') id: string, @Param('day') day: string) {
+  async deleteDetailsForDay(
+    @Param('id') id: string,
+    @Param('day') day: string,
+  ) {
     return this.itinerariesService.deleteDetailsForDay(+id, +day);
   }
 
@@ -83,7 +104,10 @@ export class ItinerariesController {
   }
 
   @Delete(':id/saved-places/section/:section')
-  async deleteSavedPlacesBySection(@Param('id') id: string, @Param('section') section: string) {
+  async deleteSavedPlacesBySection(
+    @Param('id') id: string,
+    @Param('section') section: string,
+  ) {
     return this.itinerariesService.deleteSavedPlacesBySection(+id, section);
   }
 

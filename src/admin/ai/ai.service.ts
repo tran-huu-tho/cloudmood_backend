@@ -16,7 +16,10 @@ export class AiService {
     private readonly notificationsService: NotificationsService,
   ) {
     const rawKeys = this.configService.get<string>('AI_API_KEY') || '';
-    this.apiKeys = rawKeys.split(',').map((k) => k.trim()).filter(Boolean);
+    this.apiKeys = rawKeys
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean);
   }
 
   private getApiKey(): string {
@@ -30,7 +33,10 @@ export class AiService {
     this.logger.warn(`API key rotated to index ${this.currentKeyIndex}.`);
   }
 
-  private async postWithKeyRotation(urlPath: string, payload: any): Promise<any> {
+  private async postWithKeyRotation(
+    urlPath: string,
+    payload: any,
+  ): Promise<any> {
     if (this.apiKeys.length === 0) {
       throw new Error('Chưa cấu hình AI_API_KEY trong tệp .env.');
     }
@@ -48,19 +54,26 @@ export class AiService {
         return response;
       } catch (err: any) {
         const apiErrorMessage = err.response?.data?.error?.message || '';
-        const isQuotaExceeded = err.response?.status === 429 || 
-          apiErrorMessage.toLowerCase().includes('quota') || 
+        const isQuotaExceeded =
+          err.response?.status === 429 ||
+          apiErrorMessage.toLowerCase().includes('quota') ||
           err.message.toLowerCase().includes('quota') ||
           err.message.includes('429');
 
-        if (isQuotaExceeded && this.apiKeys.length > 1 && attempts < maxAttempts) {
+        if (
+          isQuotaExceeded &&
+          this.apiKeys.length > 1 &&
+          attempts < maxAttempts
+        ) {
           const oldIndex = this.currentKeyIndex;
-          this.logger.warn(`API Key index ${this.currentKeyIndex} hit rate limit. Rotating to next key...`);
+          this.logger.warn(
+            `API Key index ${this.currentKeyIndex} hit rate limit. Rotating to next key...`,
+          );
           this.rotateApiKey();
           this.notificationsService.addNotification(
             'rotation',
             'Xoay vòng API Key thành công',
-            `Key số ${oldIndex + 1} bị cạn hạn ngạch (429). Đã tự động xoay sang Key số ${this.currentKeyIndex + 1} cho Trợ lý AI (MoodBros).`
+            `Key số ${oldIndex + 1} bị cạn hạn ngạch (429). Đã tự động xoay sang Key số ${this.currentKeyIndex + 1} cho Trợ lý AI (MoodBros).`,
           );
           continue; // Retry with the next key
         }
@@ -72,9 +85,11 @@ export class AiService {
 
   // System instructions for the model
   private getSystemInstruction() {
-    return 'Bạn là MoodBros, trợ lý AI đồng hành dành riêng cho trang Admin của hệ thống CloudMood. ' +
+    return (
+      'Bạn là MoodBros, trợ lý AI đồng hành dành riêng cho trang Admin của hệ thống CloudMood. ' +
       'Bạn có thể truy xuất số liệu thống kê, tìm kiếm địa điểm, tìm kiếm nhận xét, sửa đổi thông tin địa điểm và xóa/duyệt nhận xét thông qua các công cụ (tools) được cung cấp. ' +
-      'Hãy trả lời bằng tiếng Việt ngắn gọn, chuyên nghiệp. Nếu thực hiện thành công các thao tác cập nhật hay xóa, hãy thông báo rõ ràng cho Admin.';
+      'Hãy trả lời bằng tiếng Việt ngắn gọn, chuyên nghiệp. Nếu thực hiện thành công các thao tác cập nhật hay xóa, hãy thông báo rõ ràng cho Admin.'
+    );
   }
 
   // Function declarations for Gemini tools
@@ -84,37 +99,57 @@ export class AiService {
         functionDeclarations: [
           {
             name: 'getDatabaseStats',
-            description: 'Lấy các số liệu thống kê chung của hệ thống: tổng số địa điểm, tổng số người dùng, tổng số đánh giá và số địa điểm trong từng danh mục.',
+            description:
+              'Lấy các số liệu thống kê chung của hệ thống: tổng số địa điểm, tổng số người dùng, tổng số đánh giá và số địa điểm trong từng danh mục.',
           },
           {
             name: 'searchPlaces',
-            description: 'Tìm kiếm danh sách địa điểm trong hệ thống theo tên hoặc địa chỉ.',
+            description:
+              'Tìm kiếm danh sách địa điểm trong hệ thống theo tên hoặc địa chỉ.',
             parameters: {
               type: 'OBJECT',
               properties: {
-                query: { type: 'STRING', description: 'Từ khóa tìm kiếm trong tên hoặc địa chỉ.' },
-                categoryName: { type: 'STRING', description: 'Tên danh mục cần lọc (ví dụ: Khách sạn, Cà phê, Quán ăn, v.v.)' },
+                query: {
+                  type: 'STRING',
+                  description: 'Từ khóa tìm kiếm trong tên hoặc địa chỉ.',
+                },
+                categoryName: {
+                  type: 'STRING',
+                  description:
+                    'Tên danh mục cần lọc (ví dụ: Khách sạn, Cà phê, Quán ăn, v.v.)',
+                },
               },
             },
           },
           {
             name: 'searchReviews',
-            description: 'Tìm kiếm nhận xét/đánh giá của người dùng trong hệ thống.',
+            description:
+              'Tìm kiếm nhận xét/đánh giá của người dùng trong hệ thống.',
             parameters: {
               type: 'OBJECT',
               properties: {
-                query: { type: 'STRING', description: 'Từ khóa tìm kiếm trong nội dung bình luận.' },
-                rating: { type: 'NUMBER', description: 'Số sao đánh giá cần lọc (1-5)' },
+                query: {
+                  type: 'STRING',
+                  description: 'Từ khóa tìm kiếm trong nội dung bình luận.',
+                },
+                rating: {
+                  type: 'NUMBER',
+                  description: 'Số sao đánh giá cần lọc (1-5)',
+                },
               },
             },
           },
           {
             name: 'updatePlaceDetails',
-            description: 'Cập nhật thông tin chi tiết của một địa điểm trong hệ thống.',
+            description:
+              'Cập nhật thông tin chi tiết của một địa điểm trong hệ thống.',
             parameters: {
               type: 'OBJECT',
               properties: {
-                id: { type: 'STRING', description: 'ID của địa điểm (dưới dạng chuỗi số)' },
+                id: {
+                  type: 'STRING',
+                  description: 'ID của địa điểm (dưới dạng chuỗi số)',
+                },
                 name: { type: 'STRING', description: 'Tên địa điểm mới' },
                 description: { type: 'STRING', description: 'Mô tả mới' },
                 address: { type: 'STRING', description: 'Địa chỉ mới' },
@@ -128,11 +163,15 @@ export class AiService {
           },
           {
             name: 'deleteReview',
-            description: 'Xóa hoặc gỡ bỏ một nhận xét đánh giá của người dùng khỏi hệ thống.',
+            description:
+              'Xóa hoặc gỡ bỏ một nhận xét đánh giá của người dùng khỏi hệ thống.',
             parameters: {
               type: 'OBJECT',
               properties: {
-                id: { type: 'STRING', description: 'ID của đánh giá (dưới dạng chuỗi số)' },
+                id: {
+                  type: 'STRING',
+                  description: 'ID của đánh giá (dưới dạng chuỗi số)',
+                },
               },
               required: ['id'],
             },
@@ -144,18 +183,21 @@ export class AiService {
 
   // Tool Call Handlers
   private async handleToolCall(name: string, args: any) {
-    this.logger.log(`Executing tool call: ${name} with args: ${JSON.stringify(args)}`);
+    this.logger.log(
+      `Executing tool call: ${name} with args: ${JSON.stringify(args)}`,
+    );
     try {
       switch (name) {
         case 'getDatabaseStats': {
-          const [totalPlaces, totalReviews, totalUsers, categories] = await Promise.all([
-            this.prisma.place.count(),
-            this.prisma.review.count(),
-            this.prisma.user.count(),
-            this.prisma.category.findMany({
-              include: { _count: { select: { places: true } } },
-            }),
-          ]);
+          const [totalPlaces, totalReviews, totalUsers, categories] =
+            await Promise.all([
+              this.prisma.place.count(),
+              this.prisma.review.count(),
+              this.prisma.user.count(),
+              this.prisma.category.findMany({
+                include: { _count: { select: { places: true } } },
+              }),
+            ]);
 
           return {
             totalPlaces,
@@ -184,7 +226,9 @@ export class AiService {
             }
           }
           if (categoryName) {
-            whereClause.category = { name: { contains: categoryName, mode: 'insensitive' } };
+            whereClause.category = {
+              name: { contains: categoryName, mode: 'insensitive' },
+            };
           }
 
           const places = await this.prisma.place.findMany({
@@ -242,7 +286,16 @@ export class AiService {
         }
 
         case 'updatePlaceDetails': {
-          const { id, name, description, address, phone, website, latitude, longitude } = args;
+          const {
+            id,
+            name,
+            description,
+            address,
+            phone,
+            website,
+            latitude,
+            longitude,
+          } = args;
           const updateData: any = {};
           if (name) updateData.name = name;
           if (description) updateData.description = description;
@@ -305,7 +358,7 @@ export class AiService {
 
     try {
       // Keep track of current session turns including tool responses
-      let currentSessionContents = [...formattedContents];
+      const currentSessionContents = [...formattedContents];
       const widgetMetadata: any[] = [];
 
       let iteration = 0;
@@ -321,7 +374,7 @@ export class AiService {
               parts: [{ text: this.getSystemInstruction() }],
             },
             tools: this.getTools(),
-          }
+          },
         );
 
         const candidate = response.data?.candidates?.[0];
@@ -363,8 +416,9 @@ export class AiService {
     } catch (err: any) {
       this.logger.error(`Gemini AI Chat Error: ${err.message}`);
       const apiErrorMessage = err.response?.data?.error?.message || '';
-      const isQuotaExceeded = err.response?.status === 429 || 
-        apiErrorMessage.toLowerCase().includes('quota') || 
+      const isQuotaExceeded =
+        err.response?.status === 429 ||
+        apiErrorMessage.toLowerCase().includes('quota') ||
         err.message.toLowerCase().includes('quota') ||
         err.message.includes('429');
 

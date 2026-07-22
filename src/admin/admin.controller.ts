@@ -88,7 +88,13 @@ export class AdminController {
   ) {
     const pageNum = page ? parseInt(page) : 1;
     const limitNum = limit ? parseInt(limit) : 15;
-    return this.adminService.getPlaces(search, categoryId, pageNum, limitNum, isApproved);
+    return this.adminService.getPlaces(
+      search,
+      categoryId,
+      pageNum,
+      limitNum,
+      isApproved,
+    );
   }
 
   @Get('places/:id')

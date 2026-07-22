@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Query, Param, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Query,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PlacesService } from './places.service';
 
@@ -21,12 +29,21 @@ export class PlacesController {
     const ratingNum = minRating ? parseFloat(minRating) : undefined;
     const priceLevelArray = priceLevels ? priceLevels.split(',') : undefined;
     const amenitiesArray = amenities ? amenities.split(',') : undefined;
-    return this.placesService.findAll(categoryName, pageNum, limitNum, query, priceLevelArray, ratingNum, amenitiesArray);
+    return this.placesService.findAll(
+      categoryName,
+      pageNum,
+      limitNum,
+      query,
+      priceLevelArray,
+      ratingNum,
+      amenitiesArray,
+    );
   }
 
   @Get('check-destination')
   async checkDestination(@Query('cityName') cityName: string) {
-    const isSupported = await this.placesService.isDestinationSupported(cityName);
+    const isSupported =
+      await this.placesService.isDestinationSupported(cityName);
     return { supported: isSupported };
   }
 
@@ -42,7 +59,14 @@ export class PlacesController {
     const ratingNum = minRating ? parseFloat(minRating) : undefined;
     const priceLevelArray = priceLevels ? priceLevels.split(',') : undefined;
     const amenitiesArray = amenities ? amenities.split(',') : undefined;
-    return this.placesService.searchPlaces(destination, query, categoryName, priceLevelArray, ratingNum, amenitiesArray);
+    return this.placesService.searchPlaces(
+      destination,
+      query,
+      categoryName,
+      priceLevelArray,
+      ratingNum,
+      amenitiesArray,
+    );
   }
 
   @Post()
