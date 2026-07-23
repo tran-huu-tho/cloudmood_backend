@@ -12,12 +12,14 @@ import { NotificationsModule } from './shared/notifications/notifications.module
 import { AdminAiModule } from './admin/ai/ai.module';
 import { AdminModule } from './admin/admin.module';
 import { MobileAiModule } from './mobile/ai/ai.module';
+import { MailModule } from './shared/mail/mail.module';
 import { ForumModule } from './mobile/forum/forum.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    MailModule,
     AuthModule,
     PlacesModule,
     ItinerariesModule,

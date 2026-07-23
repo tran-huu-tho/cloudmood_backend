@@ -20,6 +20,7 @@ model User {
 
   reviews          Review[]
   itineraries      Itinerary[]
+  itineraryMembers ItineraryMember[]
   explorePosts     ExplorePost[]
   explorePostLikes ExplorePostLike[]
   forumPosts       ForumPost[]
@@ -115,8 +116,40 @@ model Itinerary {
   details      ItineraryDetail[]
   sections     ItinerarySection[]
   explorePosts ExplorePost[]
+  members      ItineraryMember[]
+  invites      ItineraryInvite[]
 
   @@map("Itinerary")
+}
+
+model ItineraryMember {
+  id          BigInt   @id @default(autoincrement())
+  itineraryId BigInt
+  userId      BigInt
+  role        String   @default("VIEWER") @db.VarChar(20)
+  joinedAt    DateTime @default(now()) @db.Timestamp(6)
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([itineraryId, userId])
+  @@map("ItineraryMember")
+}
+
+model ItineraryInvite {
+  id              BigInt   @id @default(autoincrement())
+  itineraryId     BigInt
+  invitedByUserId BigInt
+  email           String?  @db.VarChar(255)
+  role            String   @default("VIEWER") @db.VarChar(20)
+  token           String   @unique @db.VarChar(255)
+  status          String   @default("PENDING") @db.VarChar(20)
+  createdAt       DateTime @default(now()) @db.Timestamp(6)
+  expiresAt       DateTime @db.Timestamp(6)
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+
+  @@map("ItineraryInvite")
 }
 
 model PlacePhoto {

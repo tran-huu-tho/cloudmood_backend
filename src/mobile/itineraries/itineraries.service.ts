@@ -1,12 +1,18 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { WeatherService } from '../../shared/weather/weather.service';
+import { MailService } from '../../shared/mail/mail.service';
+import * as crypto from 'crypto';
+
+import { ItinerariesGateway } from './itineraries.gateway';
 
 @Injectable()
 export class ItinerariesService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private weatherService: WeatherService,
+    private mailService: MailService,
+    private itinerariesGateway: ItinerariesGateway,
   ) {}
 
   async onModuleInit() {
@@ -40,8 +46,15 @@ export class ItinerariesService implements OnModuleInit {
   }
 
   async findAllByUser(userId: string, isGuide: boolean = false) {
+    const userBigInt = BigInt(userId);
     const itineraries = await this.prisma.itinerary.findMany({
-      where: { userId: BigInt(userId), isGuide },
+      where: {
+        isGuide,
+        OR: [
+          { userId: userBigInt },
+          { members: { some: { userId: userBigInt } } },
+        ],
+      },
       include: {
         sections: true,
         details: {
@@ -49,6 +62,11 @@ export class ItinerariesService implements OnModuleInit {
         },
         savedPlaces: {
           include: { place: { include: { category: true, photos: true } } },
+        },
+        members: {
+          include: {
+            user: { select: { id: true, fullName: true, avatar: true, email: true } },
+          },
         },
         explorePosts: {
           where: { status: 'PUBLISHED' },
@@ -245,6 +263,19 @@ export class ItinerariesService implements OnModuleInit {
       },
     });
 
+    // Tự động thêm người tạo chuyến đi làm OWNER trong ItineraryMember
+    try {
+      await this.prisma.itineraryMember.create({
+        data: {
+          itineraryId: itinerary.id,
+          userId: BigInt(userId),
+          role: 'OWNER',
+        },
+      });
+    } catch (e) {
+      // Bỏ qua nếu trùng lập
+    }
+
     if (data.isGuide === true) {
       await this.prisma.itinerarySection.createMany({
         data: [
@@ -314,6 +345,7 @@ export class ItinerariesService implements OnModuleInit {
       });
     }
 
+    this.itinerariesGateway.broadcastItineraryUpdate(id, undefined, 'UPDATE');
     return updated;
   }
 
@@ -390,8 +422,8 @@ export class ItinerariesService implements OnModuleInit {
     });
   }
 
-  async addDetail(data: any) {
-    return this.prisma.itineraryDetail.create({
+  async addDetail(data: any, updatedByUserId?: string) {
+    const res = await this.prisma.itineraryDetail.create({
       data: {
         itineraryId: BigInt(data.itineraryId),
         placeId: data.placeId ? BigInt(data.placeId) : null,
@@ -401,20 +433,29 @@ export class ItinerariesService implements OnModuleInit {
       },
       include: { place: { include: { category: true, photos: true } } },
     });
+    this.itinerariesGateway.broadcastItineraryUpdate(data.itineraryId.toString(), updatedByUserId, 'ADD_DETAIL');
+    return res;
   }
 
-  async deleteDetail(id: number) {
-    return this.prisma.itineraryDetail.delete({ where: { id: BigInt(id) } });
+  async deleteDetail(id: number, updatedByUserId?: string) {
+    const detail = await this.prisma.itineraryDetail.findUnique({ where: { id: BigInt(id) } });
+    const res = await this.prisma.itineraryDetail.delete({ where: { id: BigInt(id) } });
+    if (detail) {
+      this.itinerariesGateway.broadcastItineraryUpdate(detail.itineraryId.toString(), updatedByUserId, 'DELETE_DETAIL');
+    }
+    return res;
   }
 
-  async updateDetail(id: number, data: any) {
-    return this.prisma.itineraryDetail.update({
+  async updateDetail(id: number, data: any, updatedByUserId?: string) {
+    const res = await this.prisma.itineraryDetail.update({
       where: { id: BigInt(id) },
       data,
     });
+    this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_DETAIL');
+    return res;
   }
 
-  async addSavedPlace(data: any) {
+  async addSavedPlace(data: any, updatedByUserId?: string) {
     let sortOrder = data.sortOrder;
     if (sortOrder === undefined || sortOrder === null) {
       const last = await this.prisma.itinerarySavedPlace.findFirst({
@@ -424,7 +465,7 @@ export class ItinerariesService implements OnModuleInit {
       sortOrder = last ? last.sortOrder + 1 : 0;
     }
 
-    return this.prisma.itinerarySavedPlace.create({
+    const res = await this.prisma.itinerarySavedPlace.create({
       data: {
         itineraryId: BigInt(data.itineraryId),
         placeId: data.placeId ? BigInt(data.placeId) : null,
@@ -434,39 +475,57 @@ export class ItinerariesService implements OnModuleInit {
       },
       include: { place: { include: { category: true, photos: true } } },
     });
+    this.itinerariesGateway.broadcastItineraryUpdate(data.itineraryId.toString(), updatedByUserId, 'ADD_SAVED_PLACE');
+    return res;
   }
 
-  async updateSavedPlace(id: number, data: any) {
-    return this.prisma.itinerarySavedPlace.update({
+  async updateSavedPlace(id: number, data: any, updatedByUserId?: string) {
+    const res = await this.prisma.itinerarySavedPlace.update({
       where: { id: BigInt(id) },
       data,
     });
+    this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_SAVED_PLACE');
+    return res;
   }
 
-  async deleteSavedPlace(id: number) {
-    return this.prisma.itinerarySavedPlace.delete({
+  async deleteSavedPlace(id: number, updatedByUserId?: string) {
+    const item = await this.prisma.itinerarySavedPlace.findUnique({ where: { id: BigInt(id) } });
+    const res = await this.prisma.itinerarySavedPlace.delete({
       where: { id: BigInt(id) },
     });
+    if (item) {
+      this.itinerariesGateway.broadcastItineraryUpdate(item.itineraryId.toString(), updatedByUserId, 'DELETE_SAVED_PLACE');
+    }
+    return res;
   }
 
-  async deleteSavedPlacesBySection(itineraryId: number, section: string) {
-    return this.prisma.itinerarySavedPlace.deleteMany({
+  async deleteSavedPlacesBySection(itineraryId: number, section: string, updatedByUserId?: string) {
+    const res = await this.prisma.itinerarySavedPlace.deleteMany({
       where: { itineraryId: BigInt(itineraryId), section },
     });
+    this.itinerariesGateway.broadcastItineraryUpdate(itineraryId.toString(), updatedByUserId, 'DELETE_SECTION_PLACES');
+    return res;
   }
 
-  async deleteMultipleSavedPlaces(ids: number[]) {
-    return this.prisma.itinerarySavedPlace.deleteMany({
+  async deleteMultipleSavedPlaces(ids: number[], updatedByUserId?: string) {
+    if (ids.length === 0) return { count: 0 };
+    const first = await this.prisma.itinerarySavedPlace.findFirst({ where: { id: BigInt(ids[0]) } });
+    const res = await this.prisma.itinerarySavedPlace.deleteMany({
       where: { id: { in: ids.map((id) => BigInt(id)) } },
     });
+    if (first) {
+      this.itinerariesGateway.broadcastItineraryUpdate(first.itineraryId.toString(), updatedByUserId, 'DELETE_MULTIPLE_SAVED');
+    }
+    return res;
   }
 
-  async upsertSection(data: any) {
+  async upsertSection(data: any, updatedByUserId?: string) {
     const existing = await this.prisma.itinerarySection.findFirst({
       where: { itineraryId: BigInt(data.itineraryId), name: data.name },
     });
+    let res: any;
     if (existing) {
-      return this.prisma.itinerarySection.update({
+      res = await this.prisma.itinerarySection.update({
         where: { id: existing.id },
         data: {
           colorCode: data.colorCode,
@@ -475,23 +534,28 @@ export class ItinerariesService implements OnModuleInit {
           sectionType: data.sectionType,
         },
       });
+    } else {
+      res = await this.prisma.itinerarySection.create({
+        data: {
+          itineraryId: BigInt(data.itineraryId),
+          name: data.name,
+          colorCode: data.colorCode,
+          iconCode: data.iconCode,
+          sortOrder: data.sortOrder || 0,
+          sectionType: data.sectionType || 'LIST',
+        },
+      });
     }
-    return this.prisma.itinerarySection.create({
-      data: {
-        itineraryId: BigInt(data.itineraryId),
-        name: data.name,
-        colorCode: data.colorCode,
-        iconCode: data.iconCode,
-        sortOrder: data.sortOrder || 0,
-        sectionType: data.sectionType || 'LIST',
-      },
-    });
+    this.itinerariesGateway.broadcastItineraryUpdate(data.itineraryId.toString(), updatedByUserId, 'UPSERT_SECTION');
+    return res;
   }
 
-  async deleteSection(itineraryId: number, name: string) {
-    return this.prisma.itinerarySection.deleteMany({
+  async deleteSection(itineraryId: number, name: string, updatedByUserId?: string) {
+    const res = await this.prisma.itinerarySection.deleteMany({
       where: { itineraryId: BigInt(itineraryId), name },
     });
+    this.itinerariesGateway.broadcastItineraryUpdate(itineraryId.toString(), updatedByUserId, 'DELETE_SECTION');
+    return res;
   }
 
   async getChecklistTemplates() {
@@ -535,14 +599,386 @@ export class ItinerariesService implements OnModuleInit {
       });
     }
 
-    return categories.map((cat: any) => ({
-      ...cat,
-      id: Number(cat.id),
-      items: cat.items.map((item: any) => ({
-        ...item,
-        id: Number(item.id),
-        categoryId: Number(item.categoryId),
+    return categories;
+  }
+
+  // --- QUẢN LÝ PHÂN QUYỀN & CHIA SẺ CHUYẾN ĐÍ ---
+
+  async getUserRoleInItinerary(itineraryId: number, userId: string): Promise<string | null> {
+    const userBigInt = BigInt(userId);
+    const itinBigInt = BigInt(itineraryId);
+
+    const itinerary = await this.prisma.itinerary.findUnique({
+      where: { id: itinBigInt },
+      select: { userId: true },
+    });
+
+    if (!itinerary) return null;
+
+    if (itinerary.userId === userBigInt) {
+      return 'OWNER';
+    }
+
+    const member = await this.prisma.itineraryMember.findUnique({
+      where: {
+        itineraryId_userId: {
+          itineraryId: itinBigInt,
+          userId: userBigInt,
+        },
+      },
+    });
+
+    return member ? member.role : null;
+  }
+
+  // Mời qua Email (Quyền EDITOR)
+  async inviteByEmail(itineraryId: number, currentUserId: string, email: string) {
+    const role = await this.getUserRoleInItinerary(itineraryId, currentUserId);
+    if (role !== 'OWNER' && role !== 'EDITOR') {
+      throw new ForbiddenException('Bạn không có quyền mời thành viên vào chuyến đi này.');
+    }
+
+    const itinerary = await this.prisma.itinerary.findUnique({
+      where: { id: BigInt(itineraryId) },
+    });
+    if (!itinerary) throw new NotFoundException('Chuyến đi không tồn tại.');
+
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: BigInt(currentUserId) },
+    });
+
+    const token = crypto.randomBytes(24).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 ngày
+
+    await this.prisma.itineraryInvite.create({
+      data: {
+        itineraryId: BigInt(itineraryId),
+        invitedByUserId: BigInt(currentUserId),
+        email: email.trim().toLowerCase(),
+        role: 'EDITOR', // Luôn là EDITOR khi mời qua Email
+        token,
+        expiresAt,
+      },
+    });
+
+    // Gửi Mail
+    const sent = await this.mailService.sendItineraryInvite(
+      email.trim(),
+      currentUser?.fullName || 'Một người bạn',
+      itinerary.title,
+      token,
+    );
+
+    return { success: true, message: 'Đã gửi lời mời tới email ' + email, emailSent: sent };
+  }
+
+  // Tạo / Lấy link chia sẻ qua Mạng xã hội (Quyền VIEWER)
+  async getShareLink(itineraryId: number, currentUserId: string) {
+    const role = await this.getUserRoleInItinerary(itineraryId, currentUserId);
+    if (!role) {
+      throw new ForbiddenException('Bạn không có quyền xem thông tin chuyến đi này.');
+    }
+
+    const itinBigInt = BigInt(itineraryId);
+    let existingInvite = await this.prisma.itineraryInvite.findFirst({
+      where: {
+        itineraryId: itinBigInt,
+        email: null,
+        role: 'VIEWER',
+        status: 'PENDING',
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!existingInvite) {
+      const token = crypto.randomBytes(24).toString('hex');
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 ngày
+      existingInvite = await this.prisma.itineraryInvite.create({
+        data: {
+          itineraryId: itinBigInt,
+          invitedByUserId: BigInt(currentUserId),
+          email: null,
+          role: 'VIEWER', // Luôn là VIEWER khi chia sẻ qua Link/Social
+          token,
+          expiresAt,
+        },
+      });
+    }
+
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const shareUrl = `${appUrl}/itineraries/accept-invite?token=${existingInvite.token}`;
+
+    return {
+      success: true,
+      token: existingInvite.token,
+      shareUrl,
+      role: 'VIEWER',
+    };
+  }
+
+  // Xác nhận lời mời (Dành cho cả Email & Link)
+  async acceptInvite(token: string, currentUserId?: string) {
+    const invite = await this.prisma.itineraryInvite.findUnique({
+      where: { token },
+      include: { itinerary: true },
+    });
+
+    if (!invite) throw new NotFoundException('Mã lời mời không hợp lệ hoặc đã bị hủy.');
+    if (invite.expiresAt < new Date()) {
+      throw new BadRequestException('Lời mời này đã hết hạn.');
+    }
+
+    let joinedUser: any = null;
+
+    // 1. Tìm user theo Email nếu lời mời có đính kèm Email
+    if (invite.email) {
+      joinedUser = await this.prisma.user.findUnique({
+        where: { email: invite.email },
+      });
+    }
+
+    // 2. Hoặc theo currentUserId (từ JWT Token nếu có)
+    if (!joinedUser && currentUserId) {
+      joinedUser = await this.prisma.user.findUnique({
+        where: { id: BigInt(currentUserId) },
+      });
+    }
+
+    if (joinedUser) {
+      const userBigInt = joinedUser.id;
+
+      // Thêm vào danh sách thành viên chuyến đi
+      const existingMember = await this.prisma.itineraryMember.findUnique({
+        where: {
+          itineraryId_userId: {
+            itineraryId: invite.itineraryId,
+            userId: userBigInt,
+          },
+        },
+      });
+
+      if (!existingMember) {
+        await this.prisma.itineraryMember.create({
+          data: {
+            itineraryId: invite.itineraryId,
+            userId: userBigInt,
+            role: invite.role, // 'EDITOR' hoặc 'VIEWER'
+          },
+        });
+      }
+
+      // Đánh dấu trạng thái lời mời đã được chấp nhận
+      await this.prisma.itineraryInvite.update({
+        where: { id: invite.id },
+        data: { status: 'ACCEPTED' },
+      });
+
+      return {
+        success: true,
+        message: `Chúc mừng ${joinedUser.fullName}! Bạn đã tham gia chuyến đi "${invite.itinerary.title}" thành công.`,
+        itineraryTitle: invite.itinerary.title,
+        role: invite.role,
+        isJoined: true,
+      };
+    }
+
+    // Nếu chưa đăng nhập / chưa có tài khoản
+    return {
+      success: true,
+      message: `Vui lòng mở ứng dụng Cloudmood và Đăng nhập bằng Email: ${invite.email} để tham gia chuyến đi "${invite.itinerary.title}".`,
+      itineraryTitle: invite.itinerary.title,
+      email: invite.email,
+      role: invite.role,
+      isJoined: false,
+    };
+  }
+
+  // Lấy danh sách thành viên của chuyến đi
+  async getMembers(itineraryId: number, currentUserId: string) {
+    const role = await this.getUserRoleInItinerary(itineraryId, currentUserId);
+    if (!role) throw new ForbiddenException('Bạn không thể xem danh sách thành viên chuyến đi này.');
+
+    const members = await this.prisma.itineraryMember.findMany({
+      where: { itineraryId: BigInt(itineraryId) },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    return {
+      currentRole: role,
+      members: members.map((m) => ({
+        id: m.id.toString(),
+        userId: m.userId.toString(),
+        fullName: m.user.fullName,
+        email: m.user.email,
+        avatar: m.user.avatar,
+        role: m.role,
+        joinedAt: m.joinedAt,
       })),
-    }));
+    };
+  }
+
+  // Thay đổi quyền hạn thành viên (Chỉ OWNER)
+  async updateMemberRole(itineraryId: number, currentUserId: string, targetUserId: string, newRole: string) {
+    const role = await this.getUserRoleInItinerary(itineraryId, currentUserId);
+    if (role !== 'OWNER') {
+      throw new ForbiddenException('Chỉ chủ sở hữu chuyến đi mới có quyền sửa vai trò thành viên.');
+    }
+
+    if (newRole !== 'EDITOR' && newRole !== 'VIEWER') {
+      throw new BadRequestException('Quyền hạn chỉ có thể là EDITOR hoặc VIEWER.');
+    }
+
+    const itinBigInt = BigInt(itineraryId);
+    const targetUserBigInt = BigInt(targetUserId);
+
+    const updated = await this.prisma.itineraryMember.update({
+      where: {
+        itineraryId_userId: {
+          itineraryId: itinBigInt,
+          userId: targetUserBigInt,
+        },
+      },
+      data: { role: newRole },
+    });
+
+    return { success: true, updatedRole: updated.role };
+  }
+
+  // Xóa thành viên khỏi chuyến đi (Chỉ OWNER)
+  async removeMember(itineraryId: number, currentUserId: string, targetUserId: string) {
+    const role = await this.getUserRoleInItinerary(itineraryId, currentUserId);
+    if (role !== 'OWNER') {
+      throw new ForbiddenException('Chỉ chủ sở hữu chuyến đi mới có quyền xóa thành viên.');
+    }
+
+    const itinBigInt = BigInt(itineraryId);
+    const targetUserBigInt = BigInt(targetUserId);
+
+    await this.prisma.itineraryMember.delete({
+      where: {
+        itineraryId_userId: {
+          itineraryId: itinBigInt,
+          userId: targetUserBigInt,
+        },
+      },
+    });
+
+    return { success: true, message: 'Đã xóa thành viên khỏi chuyến đi.' };
+  }
+
+  // Sao chép chuyến đi (Duplicate) dành cho VIEWER / Người muốn clone
+  async duplicateItinerary(itineraryId: number, currentUserId: string) {
+    const original = await this.prisma.itinerary.findUnique({
+      where: { id: BigInt(itineraryId) },
+      include: {
+        sections: true,
+        details: true,
+        savedPlaces: true,
+      },
+    });
+
+    if (!original) throw new NotFoundException('Chuyến đi gốc không tồn tại.');
+
+    const userBigInt = BigInt(currentUserId);
+
+    // 1. Tạo chuyến đi mới cho user
+    const cloned = await this.prisma.itinerary.create({
+      data: {
+        title: `${original.title} (Bản sao)`,
+        destination: original.destination,
+        startDate: original.startDate,
+        days: original.days,
+        budget: original.budget,
+        companion: original.companion,
+        pace: original.pace,
+        categories: original.categories,
+        amenities: original.amenities,
+        dayConfigs: original.dayConfigs || {},
+        coverImage: original.coverImage,
+        userId: userBigInt,
+      },
+    });
+
+    // Add owner
+    await this.prisma.itineraryMember.create({
+      data: {
+        itineraryId: cloned.id,
+        userId: userBigInt,
+        role: 'OWNER',
+      },
+    });
+
+    // 2. Clone Sections
+    if (original.sections.length > 0) {
+      await this.prisma.itinerarySection.createMany({
+        data: original.sections.map((s) => ({
+          itineraryId: cloned.id,
+          name: s.name,
+          colorCode: s.colorCode,
+          iconCode: s.iconCode,
+          sortOrder: s.sortOrder,
+          subTitle: s.subTitle,
+          sectionType: s.sectionType,
+        })),
+      });
+    }
+
+    // 3. Clone Details
+    if (original.details.length > 0) {
+      await this.prisma.itineraryDetail.createMany({
+        data: original.details.map((d) => ({
+          itineraryId: cloned.id,
+          day: d.day,
+          sortOrder: d.sortOrder,
+          placeId: d.placeId,
+          noteText: d.noteText,
+          todoItems: d.todoItems || [],
+          reactions: d.reactions || [],
+          isCollapsed: d.isCollapsed,
+          cost: d.cost,
+          isVisited: (d as any).isVisited ?? (d as any).is_visited ?? false,
+          attachments: d.attachments || [],
+          startTime: d.startTime,
+          endTime: d.endTime,
+        })),
+      });
+    }
+
+    // 4. Clone SavedPlaces
+    if (original.savedPlaces.length > 0) {
+      await this.prisma.itinerarySavedPlace.createMany({
+        data: original.savedPlaces.map((sp) => ({
+          itineraryId: cloned.id,
+          placeId: sp.placeId,
+          section: sp.section,
+          noteText: sp.noteText,
+          reactions: sp.reactions || [],
+          isCollapsed: sp.isCollapsed,
+          sortOrder: sp.sortOrder,
+          todoItems: sp.todoItems || [],
+          cost: sp.cost,
+          isVisited: (sp as any).isVisited ?? (sp as any).is_visited ?? false,
+          attachments: sp.attachments || [],
+          startTime: sp.startTime,
+          endTime: sp.endTime,
+        })),
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Đã sao chép chuyến đi thành công!',
+      newItineraryId: cloned.id.toString(),
+    };
   }
 }
