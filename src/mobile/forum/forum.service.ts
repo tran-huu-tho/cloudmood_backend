@@ -6,13 +6,15 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { ForumGateway } from './forum.gateway';
+import { ForumModerationService } from './forum-moderation.service';
 
 @Injectable()
 export class ForumService {
   constructor(
     private prisma: PrismaService,
     private forumGateway: ForumGateway,
-  ) {}
+    private forumModeration: ForumModerationService,
+  ) { }
 
   // 1. Tạo bài viết mới
   async createPost(
@@ -21,6 +23,9 @@ export class ForumService {
     placeId?: number,
     mediaList?: { url: string; mediaType: string }[],
   ) {
+    // Kiểm duyệt nội dung bài đăng
+    await this.forumModeration.validatePostContent(userId, content);
+
     // Lưu vào database
     const post = await this.prisma.forumPost.create({
       data: {
@@ -29,12 +34,12 @@ export class ForumService {
         placeId: placeId ? BigInt(placeId) : null,
         media: mediaList
           ? {
-              create: mediaList.map((m, index) => ({
-                url: m.url,
-                mediaType: m.mediaType,
-                sortOrder: index,
-              })),
-            }
+            create: mediaList.map((m, index) => ({
+              url: m.url,
+              mediaType: m.mediaType,
+              sortOrder: index,
+            })),
+          }
           : undefined,
       },
       include: {
@@ -80,15 +85,15 @@ export class ForumService {
     const whereCondition =
       query && query.trim().length > 0
         ? {
-            OR: [
-              { content: { contains: query, mode: 'insensitive' as const } },
-              {
-                place: {
-                  name: { contains: query, mode: 'insensitive' as const },
-                },
+          OR: [
+            { content: { contains: query, mode: 'insensitive' as const } },
+            {
+              place: {
+                name: { contains: query, mode: 'insensitive' as const },
               },
-            ],
-          }
+            },
+          ],
+        }
         : {};
 
     const posts = await this.prisma.forumPost.findMany({
@@ -337,6 +342,9 @@ export class ForumService {
       throw new BadRequestException('Nội dung bình luận không được để trống');
     }
 
+    // Kiểm duyệt nội dung bình luận
+    await this.forumModeration.validateCommentContent(userId, content);
+
     const comment = await this.prisma.forumComment.create({
       data: {
         postId: BigInt(postId),
@@ -434,6 +442,9 @@ export class ForumService {
       );
     }
 
+    // Kiểm duyệt nội dung bình luận đã chỉnh sửa
+    await this.forumModeration.validateCommentContent(userId, content);
+
     const finalContent = content !== undefined ? content : comment.content;
     const hasMedia = clearMedia ? false : mediaUrl || comment.mediaUrl;
 
@@ -453,6 +464,8 @@ export class ForumService {
       updateData.mediaUrl = mediaUrl;
       updateData.mediaType = mediaType;
     }
+
+    updateData.editedAt = new Date();
 
     const updatedComment = await this.prisma.forumComment.update({
       where: { id: BigInt(commentId) },
@@ -569,6 +582,9 @@ export class ForumService {
       throw new Error('Bạn không có quyền chỉnh sửa bài viết này');
     }
 
+    // Kiểm duyệt nội dung bài viết đã chỉnh sửa
+    await this.forumModeration.validatePostContent(userId, content);
+
     // Xóa tệp cũ nếu người dùng chọn xóa hoặc đăng tệp mới thay thế
     if (clearMedia || (newMedia && newMedia.length > 0)) {
       await this.prisma.forumMedia.deleteMany({
@@ -590,12 +606,12 @@ export class ForumService {
         media:
           newMedia && newMedia.length > 0
             ? {
-                create: newMedia.map((m, index) => ({
-                  url: m.url,
-                  mediaType: m.mediaType,
-                  sortOrder: index,
-                })),
-              }
+              create: newMedia.map((m, index) => ({
+                url: m.url,
+                mediaType: m.mediaType,
+                sortOrder: index,
+              })),
+            }
             : undefined,
       },
       include: {

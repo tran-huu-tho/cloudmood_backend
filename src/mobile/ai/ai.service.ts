@@ -1,7 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PrismaService } from '../../shared/prisma/prisma.service';
+import { ChildProcess, spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 
 interface GeminiPart {
   text?: string;
@@ -17,10 +20,11 @@ interface GeminiResponseData {
 }
 
 @Injectable()
-export class MobileAiService {
+export class MobileAiService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MobileAiService.name);
   private readonly apiKeys: string[] = [];
   private currentKeyIndex = 0;
+  private pythonProcess: ChildProcess | null = null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -291,5 +295,100 @@ export class MobileAiService {
       sessionId: currentSessionId!,
       reply: aiReply,
     };
+  }
+
+  async moderateContent(text: string): Promise<{ isViolation: boolean; category: string | null; reason: string | null }> {
+    const customAiUrl = this.configService.get<string>('CUSTOM_AI_MODERATION_URL') || 'http://localhost:8000/moderate';
+
+    try {
+      this.logger.log(`Using custom AI moderation model at ${customAiUrl}...`);
+      const response = await axios.post(customAiUrl, { text }, { timeout: 5000 });
+      if (response.status === 200 && response.data) {
+        const { isViolation, category, reason } = response.data;
+        this.logger.log(`Custom AI result: isViolation=${isViolation}, category=${category}`);
+        return {
+          isViolation: !!isViolation,
+          category: category || null,
+          reason: reason || null,
+        };
+      }
+      throw new Error(`Failed to call Custom AI service: status code ${response.status}`);
+    } catch (error: any) {
+      this.logger.error(`⚠️ Custom AI moderation failed: ${error.message}`);
+      // Mặc định cho phép nội dung nếu dịch vụ AI offline để không block diễn đàn
+      return { isViolation: false, category: null, reason: null };
+    }
+  }
+
+  async onModuleInit() {
+    const customAiUrl = this.configService.get<string>('CUSTOM_AI_MODERATION_URL') || 'http://localhost:8000/moderate';
+
+    if (customAiUrl.includes('localhost') || customAiUrl.includes('127.0.0.1')) {
+      const aiDir = 'd:\\cloudmood\\cloudmood_ai';
+      const modelDir = path.join(aiDir, 'model_forum');
+      const downloadsModelDir = 'C:\\Users\\thuut\\Downloads\\model_forum';
+
+      // 1. Tự động copy mô hình nếu chưa có từ thư mục Downloads
+      if (!fs.existsSync(modelDir)) {
+        if (fs.existsSync(downloadsModelDir)) {
+          this.logger.log(`Tìm thấy thư mục mô hình trong thư mục Downloads. Đang tự động sao chép sang ${modelDir}...`);
+          try {
+            fs.mkdirSync(modelDir, { recursive: true });
+            fs.cpSync(downloadsModelDir, modelDir, { recursive: true });
+            this.logger.log('Sao chép mô hình thành công!');
+          } catch (copyErr: any) {
+            this.logger.error(`Không thể tự động sao chép mô hình: ${copyErr.message}`);
+          }
+        } else {
+          this.logger.warn(`⚠️ Không tìm thấy thư mục mô hình tại: ${modelDir} và cũng không thấy trong Downloads: ${downloadsModelDir}. Vui lòng sao chép thủ công.`);
+          return;
+        }
+      }
+
+      this.logger.log('Đang khởi chạy dịch vụ Python AI Service...');
+
+      // 2. Xác định câu lệnh python (ưu tiên môi trường ảo venv nếu có)
+      let pythonCmd = 'python';
+      const venvPython = path.join(aiDir, 'venv', 'Scripts', 'python.exe');
+      if (fs.existsSync(venvPython)) {
+        pythonCmd = venvPython;
+      }
+
+      // Khởi chạy tiến trình uvicorn app:app
+      this.pythonProcess = spawn(pythonCmd, ['-m', 'uvicorn', 'app:app', '--port', '8000'], {
+        cwd: aiDir,
+      });
+
+      this.pythonProcess.stdout?.on('data', (data) => {
+        const message = data.toString().trim();
+        if (message) this.logger.log(`[Python AI] ${message}`);
+      });
+
+      this.pythonProcess.stderr?.on('data', (data) => {
+        const message = data.toString().trim();
+        if (message) {
+          // Tránh ghi log cảnh báo uvicorn reload/watch bình thường thành warning
+          if (message.includes('INFO') || message.includes('Application startup complete')) {
+            this.logger.log(`[Python AI] ${message}`);
+          } else {
+            this.logger.warn(`[Python AI] ${message}`);
+          }
+        }
+      });
+
+      this.pythonProcess.on('close', (code) => {
+        this.logger.warn(`Dịch vụ Python AI đã dừng với mã thoát ${code}`);
+        this.pythonProcess = null;
+      });
+
+      this.logger.log(`Khởi chạy tiến trình Python AI thành công (PID: ${this.pythonProcess.pid})`);
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.pythonProcess) {
+      this.logger.log('Đang tắt tiến trình Python AI...');
+      this.pythonProcess.kill();
+    }
   }
 }
