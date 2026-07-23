@@ -60,6 +60,12 @@ export class ExploreController {
     return this.exploreService.likePost(id, Number(req.user.id));
   }
 
+  @Delete(':id')
+  @UseGuards(AuthGuard('jwt'))
+  removeExplorePost(@Param('id', ParseIntPipe) id: number) {
+    return this.exploreService.removeExplorePost(id);
+  }
+
   @Delete(':id/like')
   @UseGuards(AuthGuard('jwt'))
   unlikePost(@Request() req, @Param('id', ParseIntPipe) id: number) {

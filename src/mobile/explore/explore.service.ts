@@ -375,4 +375,11 @@ export class ExploreService {
       },
     });
   }
+
+  async removeExplorePost(id: number) {
+    const postId = BigInt(id);
+    await this.prisma.explorePostItem.deleteMany({ where: { postId } });
+    await this.prisma.explorePostLike.deleteMany({ where: { postId } });
+    return this.prisma.explorePost.delete({ where: { id: postId } });
+  }
 }

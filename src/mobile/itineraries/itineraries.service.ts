@@ -52,7 +52,7 @@ export class ItinerariesService implements OnModuleInit {
         },
         explorePosts: {
           where: { status: 'PUBLISHED' },
-          select: { id: true },
+          select: { id: true, coverImage: true },
         },
       },
       orderBy: { id: 'desc' },
@@ -60,9 +60,43 @@ export class ItinerariesService implements OnModuleInit {
 
     return itineraries.map((item) => {
       const dc = (item.dayConfigs as any) || {};
+      const explorePostCover = item.explorePosts?.[0]?.coverImage || null;
+      const directCover = item.coverImage || null;
+      const dayConfigCover = dc.coverImage || null;
+
+      let placePhotoCover: string | null = null;
+      if (!directCover && !dayConfigCover && !explorePostCover) {
+        for (const detail of item.details || []) {
+          const photo =
+            detail.place?.photos?.[0]?.urlOriginal ||
+            detail.place?.photos?.[0]?.urlThumbnail;
+          if (photo) {
+            placePhotoCover = photo;
+            break;
+          }
+        }
+        if (!placePhotoCover) {
+          for (const sp of item.savedPlaces || []) {
+            const photo =
+              sp.place?.photos?.[0]?.urlOriginal ||
+              sp.place?.photos?.[0]?.urlThumbnail;
+            if (photo) {
+              placePhotoCover = photo;
+              break;
+            }
+          }
+        }
+      }
+
+      const resolvedCover = isGuide
+        ? explorePostCover || directCover || dayConfigCover || placePhotoCover
+        : directCover || dayConfigCover || explorePostCover || placePhotoCover;
+
       return {
         ...item,
-        coverImage: dc.coverImage || null,
+        coverImage: resolvedCover,
+        cover_image: resolvedCover,
+        image_url: resolvedCover,
       };
     });
   }
@@ -80,7 +114,7 @@ export class ItinerariesService implements OnModuleInit {
         },
         explorePosts: {
           where: { status: 'PUBLISHED' },
-          select: { id: true },
+          select: { id: true, coverImage: true },
         },
       },
     });
@@ -99,14 +133,100 @@ export class ItinerariesService implements OnModuleInit {
     }
 
     const dayConfigsObj = (itinerary.dayConfigs as any) || {};
+    const isGuide = itinerary.isGuide === true;
+    const explorePostCover = itinerary.explorePosts?.[0]?.coverImage || null;
+    const directCover = itinerary.coverImage || null;
+    const dayConfigCover = dayConfigsObj.coverImage || null;
+
+    let placePhotoCover: string | null = null;
+    if (!directCover && !dayConfigCover && !explorePostCover) {
+      for (const detail of itinerary.details || []) {
+        const photo =
+          detail.place?.photos?.[0]?.urlOriginal ||
+          detail.place?.photos?.[0]?.urlThumbnail;
+        if (photo) {
+          placePhotoCover = photo;
+          break;
+        }
+      }
+      if (!placePhotoCover) {
+        for (const sp of itinerary.savedPlaces || []) {
+          const photo =
+            sp.place?.photos?.[0]?.urlOriginal ||
+            sp.place?.photos?.[0]?.urlThumbnail;
+          if (photo) {
+            placePhotoCover = photo;
+            break;
+          }
+        }
+      }
+    }
+
+    const resolvedCover = isGuide
+      ? explorePostCover || directCover || dayConfigCover || placePhotoCover
+      : directCover || dayConfigCover || explorePostCover || placePhotoCover;
+
     return {
       ...itinerary,
-      coverImage: dayConfigsObj.coverImage || null,
+      coverImage: resolvedCover,
+      cover_image: resolvedCover,
+      image_url: resolvedCover,
       weather,
     };
   }
 
   async create(userId: string, data: any) {
+    let coverImage = data.coverImage || null;
+
+    if (!coverImage && data.destination) {
+      try {
+        const dest = data.destination.toString();
+        const places = await this.prisma.place.findMany({
+          where: {
+            OR: [
+              { address: { contains: dest, mode: 'insensitive' } },
+              { name: { contains: dest, mode: 'insensitive' } },
+            ],
+            photos: { some: {} },
+          },
+          include: { photos: true },
+          take: 30,
+        });
+
+        const photos: string[] = [];
+        for (const p of places) {
+          for (const ph of p.photos) {
+            const url = ph.urlOriginal || ph.urlThumbnail;
+            if (url && !url.includes('via.placeholder.com')) {
+              photos.push(url);
+            }
+          }
+        }
+
+        if (photos.length === 0) {
+          const anyPlaces = await this.prisma.place.findMany({
+            where: { photos: { some: {} } },
+            include: { photos: true },
+            take: 30,
+          });
+          for (const p of anyPlaces) {
+            for (const ph of p.photos) {
+              const url = ph.urlOriginal || ph.urlThumbnail;
+              if (url && !url.includes('via.placeholder.com')) {
+                photos.push(url);
+              }
+            }
+          }
+        }
+
+        if (photos.length > 0) {
+          coverImage = photos[Math.floor(Math.random() * photos.length)];
+        }
+      } catch (e) {
+        // Ignored
+      }
+    }
+
     const itinerary = await this.prisma.itinerary.create({
       data: {
         title: data.title,
@@ -121,6 +241,7 @@ export class ItinerariesService implements OnModuleInit {
         amenities: data.amenities ?? [],
         userId: BigInt(userId),
         isGuide: data.isGuide === true,
+        coverImage: coverImage,
       },
     });
 
@@ -181,10 +302,19 @@ export class ItinerariesService implements OnModuleInit {
       updateData.budget = BigInt(updateData.budget);
     }
 
-    return this.prisma.itinerary.update({
+    const updated = await this.prisma.itinerary.update({
       where: { id: BigInt(id) },
       data: updateData,
     });
+
+    if (data.coverImage !== undefined) {
+      await this.prisma.explorePost.updateMany({
+        where: { originalItineraryId: BigInt(id) },
+        data: { coverImage: data.coverImage },
+      });
+    }
+
+    return updated;
   }
 
   async updateDayConfigs(id: number, dayConfigs: any) {
@@ -192,6 +322,49 @@ export class ItinerariesService implements OnModuleInit {
       where: { id: BigInt(id) },
       data: { dayConfigs },
     });
+  }
+
+  async remove(id: number) {
+    const itineraryId = BigInt(id);
+    const itinerary = await this.prisma.itinerary.findUnique({
+      where: { id: itineraryId },
+    });
+
+    if (itinerary) {
+      // Find all matching explore posts (by originalItineraryId OR matching title & authorId)
+      const matchingPosts = await this.prisma.explorePost.findMany({
+        where: {
+          OR: [
+            { originalItineraryId: itineraryId },
+            {
+              authorId: itinerary.userId,
+              title: itinerary.title,
+              destination: itinerary.destination,
+            },
+          ],
+        },
+        select: { id: true },
+      });
+
+      const postIds = matchingPosts.map((p) => p.id);
+
+      if (postIds.length > 0) {
+        await this.prisma.explorePostItem.deleteMany({
+          where: { postId: { in: postIds } },
+        });
+        await this.prisma.explorePostLike.deleteMany({
+          where: { postId: { in: postIds } },
+        });
+        await this.prisma.explorePost.deleteMany({
+          where: { id: { in: postIds } },
+        });
+      }
+    }
+
+    await this.prisma.itineraryDetail.deleteMany({ where: { itineraryId } });
+    await this.prisma.itinerarySavedPlace.deleteMany({ where: { itineraryId } });
+    await this.prisma.itinerarySection.deleteMany({ where: { itineraryId } });
+    return this.prisma.itinerary.delete({ where: { id: itineraryId } });
   }
 
   async shiftDetailsDays(

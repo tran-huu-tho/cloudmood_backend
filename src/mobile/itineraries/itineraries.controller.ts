@@ -51,6 +51,11 @@ export class ItinerariesController {
     return this.itinerariesService.update(+id, body);
   }
 
+  @Delete(':id')
+  async remove(@Param('id') id: string) {
+    return this.itinerariesService.remove(+id);
+  }
+
   @Put(':id/day-configs')
   async updateDayConfigs(@Param('id') id: string, @Body() body: any) {
     return this.itinerariesService.updateDayConfigs(+id, body);
