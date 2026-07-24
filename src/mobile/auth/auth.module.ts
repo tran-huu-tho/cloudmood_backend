@@ -7,9 +7,12 @@ import { PrismaModule } from '../../shared/prisma/prisma.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from './jwt.strategy';
 
+import { CloudinaryModule } from '../../shared/cloudinary/cloudinary.module';
+
 @Module({
   imports: [
     PrismaModule,
+    CloudinaryModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

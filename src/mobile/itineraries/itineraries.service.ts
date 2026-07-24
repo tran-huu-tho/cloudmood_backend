@@ -798,6 +798,21 @@ export class ItinerariesService implements OnModuleInit {
     const role = await this.getUserRoleInItinerary(itineraryId, currentUserId);
     if (!role) throw new ForbiddenException('Bạn không thể xem danh sách thành viên chuyến đi này.');
 
+    const itinerary = await this.prisma.itinerary.findUnique({
+      where: { id: BigInt(itineraryId) },
+      select: {
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
     const members = await this.prisma.itineraryMember.findMany({
       where: { itineraryId: BigInt(itineraryId) },
       include: {
@@ -813,17 +828,50 @@ export class ItinerariesService implements OnModuleInit {
       orderBy: { joinedAt: 'asc' },
     });
 
+    let resultMembers = members.map((m) => ({
+      id: m.id.toString(),
+      userId: m.userId.toString(),
+      fullName: m.user.fullName,
+      email: m.user.email,
+      avatar: m.user.avatar,
+      role: m.role,
+      joinedAt: m.joinedAt,
+    }));
+
+    // Nếu người tạo (Owner) chưa có trong bảng ItineraryMember (chuyến đi cũ)
+    if (itinerary && itinerary.user) {
+      const ownerInMembers = resultMembers.find(
+        (m) => m.userId === itinerary.userId.toString(),
+      );
+      if (!ownerInMembers) {
+        // Tự động thêm owner vào bảng ItineraryMember để lưu bền vững
+        try {
+          await this.prisma.itineraryMember.create({
+            data: {
+              itineraryId: BigInt(itineraryId),
+              userId: itinerary.userId,
+              role: 'OWNER',
+            },
+          });
+        } catch (e) {
+          // Bỏ qua nếu lỗi
+        }
+
+        resultMembers.unshift({
+          id: 'owner',
+          userId: itinerary.userId.toString(),
+          fullName: itinerary.user.fullName,
+          email: itinerary.user.email,
+          avatar: itinerary.user.avatar,
+          role: 'OWNER',
+          joinedAt: new Date(),
+        });
+      }
+    }
+
     return {
       currentRole: role,
-      members: members.map((m) => ({
-        id: m.id.toString(),
-        userId: m.userId.toString(),
-        fullName: m.user.fullName,
-        email: m.user.email,
-        avatar: m.user.avatar,
-        role: m.role,
-        joinedAt: m.joinedAt,
-      })),
+      members: resultMembers,
     };
   }
 

@@ -26,4 +26,14 @@ export class CloudinaryService {
       streamifier.createReadStream(file.buffer).pipe(uploadStream);
     });
   }
+
+  uploadBase64Image(
+    base64Data: string,
+    folder = 'cloudmood_avatars',
+  ): Promise<UploadApiResponse | UploadApiErrorResponse> {
+    return cloudinary.uploader.upload(base64Data, {
+      folder,
+      resource_type: 'image',
+    });
+  }
 }

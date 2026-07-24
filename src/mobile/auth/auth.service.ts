@@ -8,11 +8,14 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
 
+import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
+
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   private verificationCodes = new Map<
@@ -378,11 +381,28 @@ export class AuthService {
   }
 
   async updateProfile(userId: string, data: any) {
+    let avatarUrl = data.avatarUrl;
+
+    // Nếu avatarUrl là ảnh base64 tải lên từ mobile profile -> Đẩy lên Cloudinary
+    if (avatarUrl && avatarUrl.startsWith('data:image')) {
+      try {
+        const uploadRes = await this.cloudinaryService.uploadBase64Image(
+          avatarUrl,
+          'cloudmood_avatars',
+        );
+        if (uploadRes && uploadRes.secure_url) {
+          avatarUrl = uploadRes.secure_url;
+        }
+      } catch (err) {
+        console.error('Lỗi upload avatar lên Cloudinary:', err);
+      }
+    }
+
     const user = await this.prisma.user.update({
       where: { id: BigInt(userId) },
       data: {
         fullName: data.fullName,
-        avatar: data.avatarUrl,
+        avatar: avatarUrl,
       },
     });
 
