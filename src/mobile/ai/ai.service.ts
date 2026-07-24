@@ -324,9 +324,10 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     const customAiUrl = this.configService.get<string>('CUSTOM_AI_MODERATION_URL') || 'http://localhost:8000/moderate';
 
     if (customAiUrl.includes('localhost') || customAiUrl.includes('127.0.0.1')) {
-      const aiDir = 'd:\\cloudmood\\cloudmood_ai';
+      const aiDir = this.configService.get<string>('AI_DIR') || path.resolve(process.cwd(), '../cloudmood_ai');
       const modelDir = path.join(aiDir, 'model_forum');
-      const downloadsModelDir = 'C:\\Users\\thuut\\Downloads\\model_forum';
+      const userHome = process.env.USERPROFILE || process.env.HOME || '';
+      const downloadsModelDir = path.join(userHome, 'Downloads', 'model_forum');
 
       // 1. Tự động copy mô hình nếu chưa có từ thư mục Downloads
       if (!fs.existsSync(modelDir)) {
