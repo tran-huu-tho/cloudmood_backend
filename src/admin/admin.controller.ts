@@ -31,6 +31,11 @@ export class AdminController {
     return this.adminService.getItineraries(limitNum);
   }
 
+  @Delete('itineraries/:id')
+  async deleteItinerary(@Param('id') id: string) {
+    return this.adminService.deleteItinerary(id);
+  }
+
   // 2. User Management
   @Get('users')
   async getUsers(

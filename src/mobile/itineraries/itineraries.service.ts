@@ -37,6 +37,9 @@ export class ItinerariesService implements OnModuleInit {
         `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "isGuide" boolean DEFAULT false`,
       );
       await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "isAi" boolean DEFAULT false`,
+      );
+      await this.prisma.$executeRawUnsafe(
         `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "coverImage" text`,
       );
       // Link ItineraryExpense to places (1-1 FK)
@@ -287,6 +290,7 @@ export class ItinerariesService implements OnModuleInit {
         amenities: data.amenities ?? [],
         userId: BigInt(userId),
         isGuide: data.isGuide === true,
+        isAi: data.isAi === true,
         coverImage: coverImage,
       },
     });

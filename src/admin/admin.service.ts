@@ -58,7 +58,67 @@ export class AdminService {
     return this.prisma.itinerary.findMany({
       orderBy: { id: 'desc' },
       take: limit,
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatar: true,
+          },
+        },
+      },
     });
+  }
+
+  async deleteItinerary(id: string) {
+    const itineraryId = BigInt(id);
+    const itinerary = await this.prisma.itinerary.findUnique({
+      where: { id: itineraryId },
+    });
+
+    if (!itinerary) {
+      throw new BadRequestException('Hành trình không tồn tại.');
+    }
+
+    // Find all matching explore posts (by originalItineraryId OR matching title & authorId)
+    const matchingPosts = await this.prisma.explorePost.findMany({
+      where: {
+        OR: [
+          { originalItineraryId: itineraryId },
+          {
+            authorId: itinerary.userId,
+            title: itinerary.title,
+            destination: itinerary.destination,
+          },
+        ],
+      },
+      select: { id: true },
+    });
+
+    const postIds = matchingPosts.map((p) => p.id);
+
+    if (postIds.length > 0) {
+      await this.prisma.explorePostItem.deleteMany({
+        where: { postId: { in: postIds } },
+      });
+      await this.prisma.explorePostLike.deleteMany({
+        where: { postId: { in: postIds } },
+      });
+      await this.prisma.explorePost.deleteMany({
+        where: { id: { in: postIds } },
+      });
+    }
+
+    await this.prisma.itineraryDetail.deleteMany({ where: { itineraryId } });
+    await this.prisma.itinerarySavedPlace.deleteMany({ where: { itineraryId } });
+    await this.prisma.itinerarySection.deleteMany({ where: { itineraryId } });
+    await this.prisma.itineraryMember.deleteMany({ where: { itineraryId } });
+    await this.prisma.itineraryInvite.deleteMany({ where: { itineraryId } });
+    await this.prisma.itineraryExpense.deleteMany({ where: { itineraryId } });
+
+    await this.prisma.itinerary.delete({ where: { id: itineraryId } });
+    return { success: true };
   }
 
   // 2. User Management

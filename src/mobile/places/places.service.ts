@@ -388,13 +388,33 @@ export class PlacesService {
       );
     }
 
+    let lat = data.latitude !== undefined ? parseFloat(data.latitude) : 0.0;
+    let lng = data.longitude !== undefined ? parseFloat(data.longitude) : 0.0;
+
+    // If coordinates are default (0.0) and an address is provided, auto-geocode it
+    if (lat === 0.0 && lng === 0.0 && data.address && data.address.trim() !== '') {
+      try {
+        const geoapifyKey = this.configService.get<string>('GEOAPIFY_API_KEY');
+        if (geoapifyKey) {
+          const geocodeUrl = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(data.address.trim())}&limit=1&apiKey=${geoapifyKey}`;
+          const res = await axios.get(geocodeUrl);
+          if (res.data?.features && res.data.features.length > 0) {
+            const feature = res.data.features[0];
+            lat = feature.properties.lat || 0.0;
+            lng = feature.properties.lon || 0.0;
+          }
+        }
+      } catch (error: any) {
+        this.logger.error(`Failed to geocode proposed place address: ${error.message}`);
+      }
+    }
+
     return this.prisma.place.create({
       data: {
         name: data.name,
         description: data.description || '',
-        latitude: data.latitude !== undefined ? parseFloat(data.latitude) : 0.0,
-        longitude:
-          data.longitude !== undefined ? parseFloat(data.longitude) : 0.0,
+        latitude: lat,
+        longitude: lng,
         address: data.address || '',
         price: data.price || 'Liên hệ',
         categoryId: BigInt(data.categoryId),
