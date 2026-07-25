@@ -227,4 +227,28 @@ export class ItinerariesController {
   async duplicateItinerary(@Param('id') id: string, @Request() req) {
     return this.itinerariesService.duplicateItinerary(+id, req.user.id.toString());
   }
+
+  // --- Expense Endpoints ---
+  @Get(':id/expenses')
+  async getExpenses(@Param('id') id: string) {
+    return this.itinerariesService.getExpenses(+id);
+  }
+
+  @Post(':id/expenses')
+  async addExpense(@Param('id') id: string, @Body() body: any) {
+    return this.itinerariesService.addExpense(+id, body);
+  }
+
+  @Delete('expenses/:expenseId')
+  async deleteExpense(@Param('expenseId') expenseId: string) {
+    return this.itinerariesService.deleteExpense(+expenseId);
+  }
+
+  @Put('expenses/:expenseId')
+  async updateExpense(
+    @Param('expenseId') expenseId: string,
+    @Body() body: any,
+  ) {
+    return this.itinerariesService.updateExpense(+expenseId, body);
+  }
 }

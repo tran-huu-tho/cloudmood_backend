@@ -39,6 +39,28 @@ export class ItinerariesService implements OnModuleInit {
       await this.prisma.$executeRawUnsafe(
         `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "coverImage" text`,
       );
+      // Link ItineraryExpense to places (1-1 FK)
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "ItineraryExpense" ADD COLUMN IF NOT EXISTS "savedPlaceId" bigint`,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "ItineraryExpense" ADD COLUMN IF NOT EXISTS "detailId" bigint`,
+      );
+      // Add unique constraints if not exists
+      await this.prisma.$executeRawUnsafe(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ItineraryExpense_savedPlaceId_key') THEN
+            ALTER TABLE "ItineraryExpense" ADD CONSTRAINT "ItineraryExpense_savedPlaceId_key" UNIQUE ("savedPlaceId");
+          END IF;
+        END $$;
+      `);
+      await this.prisma.$executeRawUnsafe(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ItineraryExpense_detailId_key') THEN
+            ALTER TABLE "ItineraryExpense" ADD CONSTRAINT "ItineraryExpense_detailId_key" UNIQUE ("detailId");
+          END IF;
+        END $$;
+      `);
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
@@ -125,10 +147,16 @@ export class ItinerariesService implements OnModuleInit {
       include: {
         sections: true,
         details: {
-          include: { place: { include: { category: true, photos: true } } },
+          include: {
+            place: { include: { category: true, photos: true } },
+            expense: true,
+          },
         },
         savedPlaces: {
-          include: { place: { include: { category: true, photos: true } } },
+          include: {
+            place: { include: { category: true, photos: true } },
+            expense: true,
+          },
         },
         explorePosts: {
           where: { status: 'PUBLISHED' },
@@ -454,12 +482,17 @@ export class ItinerariesService implements OnModuleInit {
   }
 
   async updateDetail(id: number, data: any, updatedByUserId?: string) {
-    const res = await this.prisma.itineraryDetail.update({
-      where: { id: BigInt(id) },
-      data,
-    });
-    this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_DETAIL');
-    return res;
+    try {
+      const res = await this.prisma.itineraryDetail.update({
+        where: { id: BigInt(id) },
+        data,
+      });
+      this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_DETAIL');
+      return res;
+    } catch (err) {
+      console.warn(`updateDetail skipped: record #${id} not found.`);
+      return null;
+    }
   }
 
   async addSavedPlace(data: any, updatedByUserId?: string) {
@@ -487,12 +520,17 @@ export class ItinerariesService implements OnModuleInit {
   }
 
   async updateSavedPlace(id: number, data: any, updatedByUserId?: string) {
-    const res = await this.prisma.itinerarySavedPlace.update({
-      where: { id: BigInt(id) },
-      data,
-    });
-    this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_SAVED_PLACE');
-    return res;
+    try {
+      const res = await this.prisma.itinerarySavedPlace.update({
+        where: { id: BigInt(id) },
+        data,
+      });
+      this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_SAVED_PLACE');
+      return res;
+    } catch (err) {
+      console.warn(`updateSavedPlace skipped: record #${id} not found.`);
+      return null;
+    }
   }
 
   async deleteSavedPlace(id: number, updatedByUserId?: string) {
@@ -1002,7 +1040,6 @@ export class ItinerariesService implements OnModuleInit {
           todoItems: d.todoItems || [],
           reactions: d.reactions || [],
           isCollapsed: d.isCollapsed,
-          cost: d.cost,
           isVisited: (d as any).isVisited ?? (d as any).is_visited ?? false,
           attachments: d.attachments || [],
           startTime: d.startTime,
@@ -1023,7 +1060,6 @@ export class ItinerariesService implements OnModuleInit {
           isCollapsed: sp.isCollapsed,
           sortOrder: sp.sortOrder,
           todoItems: sp.todoItems || [],
-          cost: sp.cost,
           isVisited: (sp as any).isVisited ?? (sp as any).is_visited ?? false,
           attachments: sp.attachments || [],
           startTime: sp.startTime,
@@ -1036,6 +1072,127 @@ export class ItinerariesService implements OnModuleInit {
       success: true,
       message: 'Đã sao chép chuyến đi thành công!',
       newItineraryId: cloned.id.toString(),
+    };
+  }
+
+  // --- QUẢN LÝ CHI PHÍ CHUYẾN ĐI (EXPENSES) ---
+
+  async getExpenses(itineraryId: number) {
+    const expenses = await this.prisma.itineraryExpense.findMany({
+      where: { itineraryId: BigInt(itineraryId) },
+      orderBy: { createdAt: 'desc' },
+    });
+    return expenses.map((e) => ({
+      id: e.id.toString(),
+      itineraryId: e.itineraryId.toString(),
+      title: e.title,
+      amount: e.amount,
+      category: e.category,
+      payer: e.payer,
+      share: e.share,
+      date: e.date,
+      currencySymbol: e.currencySymbol,
+      currencyCode: e.currencyCode,
+      savedPlaceId: e.savedPlaceId ? e.savedPlaceId.toString() : null,
+      detailId: e.detailId ? e.detailId.toString() : null,
+      createdAt: e.createdAt,
+    }));
+  }
+
+  async addExpense(itineraryId: number, data: any) {
+    // Upsert: nếu savedPlaceId hoặc detailId đã tồn tại, update thay vì tạo mới
+    const savedPlaceId = data.savedPlaceId ? BigInt(data.savedPlaceId) : null;
+    const detailId = data.detailId ? BigInt(data.detailId) : null;
+
+    // Check if an expense already exists for this place
+    let existing: any = null;
+    if (savedPlaceId) {
+      existing = await this.prisma.itineraryExpense.findUnique({ where: { savedPlaceId } });
+    } else if (detailId) {
+      existing = await this.prisma.itineraryExpense.findUnique({ where: { detailId } });
+    }
+
+    const expenseData = {
+      itineraryId: BigInt(itineraryId),
+      title: data.title || 'Chi phí',
+      amount: Number(data.amount) || 0,
+      category: data.category || 'Khác',
+      payer: data.payer || 'Bạn',
+      share: data.share || 'Không chia sẻ',
+      date: data.date || new Date().toISOString().substring(0, 10),
+      currencySymbol: data.currencySymbol || 'đ',
+      currencyCode: data.currencyCode || 'VND',
+      savedPlaceId,
+      detailId,
+    };
+
+    let expense: any;
+    if (existing) {
+      expense = await this.prisma.itineraryExpense.update({
+        where: { id: existing.id },
+        data: expenseData,
+      });
+    } else {
+      expense = await this.prisma.itineraryExpense.create({ data: expenseData });
+    }
+
+    return {
+      id: expense.id.toString(),
+      itineraryId: expense.itineraryId.toString(),
+      title: expense.title,
+      amount: expense.amount,
+      category: expense.category,
+      payer: expense.payer,
+      share: expense.share,
+      date: expense.date,
+      currencySymbol: expense.currencySymbol,
+      currencyCode: expense.currencyCode,
+      savedPlaceId: expense.savedPlaceId ? expense.savedPlaceId.toString() : null,
+      detailId: expense.detailId ? expense.detailId.toString() : null,
+      createdAt: expense.createdAt,
+    };
+  }
+
+  async deleteExpense(expenseId: number) {
+    await this.prisma.itineraryExpense.delete({
+      where: { id: BigInt(expenseId) },
+    });
+    return { success: true };
+  }
+
+  async updateExpense(expenseId: number, data: any) {
+    const savedPlaceId = data.savedPlaceId ? BigInt(data.savedPlaceId) : undefined;
+    const detailId = data.detailId ? BigInt(data.detailId) : undefined;
+
+    const expense = await this.prisma.itineraryExpense.update({
+      where: { id: BigInt(expenseId) },
+      data: {
+        title: data.title,
+        amount: data.amount ? Number(data.amount) : undefined,
+        category: data.category,
+        payer: data.payer,
+        share: data.share,
+        date: data.date,
+        currencySymbol: data.currencySymbol,
+        currencyCode: data.currencyCode,
+        ...(savedPlaceId !== undefined ? { savedPlaceId } : {}),
+        ...(detailId !== undefined ? { detailId } : {}),
+      },
+    });
+    return {
+      id: expense.id.toString(),
+      itineraryId: expense.itineraryId.toString(),
+      title: expense.title,
+      amount: expense.amount,
+      category: expense.category,
+      payer: expense.payer,
+      share: expense.share,
+      date: expense.date,
+      currencySymbol: expense.currencySymbol,
+      currencyCode: expense.currencyCode,
+      savedPlaceId: expense.savedPlaceId ? expense.savedPlaceId.toString() : null,
+      detailId: expense.detailId ? expense.detailId.toString() : null,
+      createdAt: expense.createdAt,
     };
   }
 }

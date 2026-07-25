@@ -118,6 +118,7 @@ model Itinerary {
   explorePosts ExplorePost[]
   members      ItineraryMember[]
   invites      ItineraryInvite[]
+  expenses     ItineraryExpense[]
 
   @@map("Itinerary")
 }
@@ -178,11 +179,11 @@ model ItinerarySavedPlace {
   startTime   String?
   endTime     String?
   isVisited   Boolean? @default(false) @map("is_visited")
-  cost        Decimal? @default(0) @db.Decimal(12, 2)
   attachments Json     @default("[]")
 
-  itinerary Itinerary @relation(fields: [itineraryId], references: [id])
-  place     Place?    @relation(fields: [placeId], references: [id])
+  itinerary Itinerary         @relation(fields: [itineraryId], references: [id])
+  place     Place?            @relation(fields: [placeId], references: [id])
+  expense   ItineraryExpense?
 
   @@map("ItinerarySavedPlace")
 }
@@ -198,13 +199,13 @@ model ItineraryDetail {
   reactions   Json     @default("[]")
   isCollapsed Boolean  @default(false)
   isVisited   Boolean? @default(false) @map("is_visited")
-  cost        Decimal? @default(0) @db.Decimal(12, 2)
   attachments Json     @default("[]")
   startTime   String?
   endTime     String?
 
-  itinerary Itinerary @relation(fields: [itineraryId], references: [id])
-  place     Place?    @relation(fields: [placeId], references: [id])
+  itinerary Itinerary         @relation(fields: [itineraryId], references: [id])
+  place     Place?            @relation(fields: [placeId], references: [id])
+  expense   ItineraryExpense?
 
   @@map("ItineraryDetail")
 }
@@ -421,4 +422,26 @@ model ChatMessage {
   session     ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("ChatMessage")
+}
+
+model ItineraryExpense {
+  id             BigInt   @id @default(autoincrement())
+  itineraryId    BigInt
+  title          String   @db.VarChar
+  amount         Float
+  category       String   @default("Khác") @db.VarChar
+  payer          String   @db.VarChar
+  share          String   @default("Không chia sẻ") @db.VarChar
+  date           String   @db.VarChar
+  currencySymbol String?  @default("đ") @db.VarChar
+  currencyCode   String?  @default("VND") @db.VarChar
+  savedPlaceId   BigInt?  @unique
+  detailId       BigInt?  @unique
+  createdAt      DateTime @default(now()) @db.Timestamp(6)
+
+  itinerary  Itinerary            @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  savedPlace ItinerarySavedPlace? @relation(fields: [savedPlaceId], references: [id], onDelete: SetNull)
+  detail     ItineraryDetail?     @relation(fields: [detailId], references: [id], onDelete: SetNull)
+
+  @@map("ItineraryExpense")
 }
