@@ -50,18 +50,21 @@ export class ItinerariesGateway implements OnGatewayConnection, OnGatewayDisconn
     client.join(roomName);
     this.logger.log(`Client ${client.id} joined room ${roomName}`);
 
-    if (data.user && data.user.id) {
+    if (data.user && (data.user.id || data.user.userId)) {
+      const uId = (data.user.id || data.user.userId).toString();
       if (!this.activeMembers.has(itineraryId)) {
         this.activeMembers.set(itineraryId, new Map());
       }
       this.activeMembers.get(itineraryId)!.set(client.id, {
-        userId: data.user.id.toString(),
+        userId: uId,
         fullName: data.user.fullName || data.user.name || 'Thành viên',
         avatarUrl: data.user.avatarUrl || data.user.avatar || null,
         joinedAt: new Date().toISOString(),
       });
-      this.broadcastActiveMembers(itineraryId);
     }
+
+    // Always broadcast active members list to room so everyone (including joining client) stays in sync
+    this.broadcastActiveMembers(itineraryId);
 
     return { status: 'joined', room: roomName };
   }
@@ -87,7 +90,17 @@ export class ItinerariesGateway implements OnGatewayConnection, OnGatewayDisconn
   private broadcastActiveMembers(itineraryId: string) {
     const roomName = `itinerary_${itineraryId}`;
     const usersMap = this.activeMembers.get(itineraryId);
-    const membersList = usersMap ? Array.from(usersMap.values()) : [];
+    const rawList = usersMap ? Array.from(usersMap.values()) : [];
+
+    // Deduplicate active members by userId
+    const uniqueMap = new Map<string, any>();
+    for (const member of rawList) {
+      if (member.userId) {
+        uniqueMap.set(member.userId, member);
+      }
+    }
+    const membersList = Array.from(uniqueMap.values());
+
     this.server.to(roomName).emit('active_members_updated', {
       itineraryId,
       activeMembers: membersList,
