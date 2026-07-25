@@ -76,6 +76,7 @@ export class ItinerariesController {
   }
 
   @Post()
+  @UseGuards(AuthGuard('jwt'))
   async create(@Request() req, @Body() body: any) {
     return this.itinerariesService.create(req.user.id.toString(), body);
   }
@@ -174,8 +175,9 @@ export class ItinerariesController {
     @Param('id') id: string,
     @Request() req,
     @Body('email') email: string,
+    @Body('role') role?: string,
   ) {
-    return this.itinerariesService.inviteByEmail(+id, req.user.id.toString(), email);
+    return this.itinerariesService.inviteByEmail(+id, req.user.id.toString(), email, role);
   }
 
   @Post(':id/share-link')

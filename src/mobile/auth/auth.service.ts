@@ -18,6 +18,38 @@ export class AuthService {
     private cloudinaryService: CloudinaryService,
   ) {}
 
+  async searchUsersByEmail(queryEmail: string) {
+    if (!queryEmail || queryEmail.trim().length < 1) {
+      return { success: true, users: [] };
+    }
+    const users = await this.prisma.user.findMany({
+      where: {
+        email: {
+          contains: queryEmail.trim().toLowerCase(),
+          mode: 'insensitive',
+        },
+        role: false, // EXCLUDE ADMIN ACCOUNTS (role === true)
+      },
+      take: 5,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        avatar: true,
+      },
+    });
+
+    return {
+      success: true,
+      users: users.map((u) => ({
+        id: Number(u.id),
+        fullName: u.fullName,
+        email: u.email,
+        avatar: u.avatar,
+      })),
+    };
+  }
+
   private verificationCodes = new Map<
     string,
     { code: string; expiresAt: number }

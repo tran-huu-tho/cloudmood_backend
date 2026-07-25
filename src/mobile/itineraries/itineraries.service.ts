@@ -396,7 +396,14 @@ export class ItinerariesService implements OnModuleInit {
     await this.prisma.itineraryDetail.deleteMany({ where: { itineraryId } });
     await this.prisma.itinerarySavedPlace.deleteMany({ where: { itineraryId } });
     await this.prisma.itinerarySection.deleteMany({ where: { itineraryId } });
-    return this.prisma.itinerary.delete({ where: { id: itineraryId } });
+    try {
+      return await this.prisma.itinerary.delete({ where: { id: itineraryId } });
+    } catch (err: any) {
+      if (err?.code === 'P2025') {
+        return { success: true, message: 'Lịch trình đã được xóa hoặc không tồn tại' };
+      }
+      throw err;
+    }
   }
 
   async shiftDetailsDays(
@@ -631,8 +638,8 @@ export class ItinerariesService implements OnModuleInit {
     return member ? member.role : null;
   }
 
-  // Mời qua Email (Quyền EDITOR)
-  async inviteByEmail(itineraryId: number, currentUserId: string, email: string) {
+  // Mời qua Email
+  async inviteByEmail(itineraryId: number, currentUserId: string, email: string, customRole?: string) {
     const role = await this.getUserRoleInItinerary(itineraryId, currentUserId);
     if (role !== 'OWNER' && role !== 'EDITOR') {
       throw new ForbiddenException('Bạn không có quyền mời thành viên vào chuyến đi này.');
@@ -650,12 +657,14 @@ export class ItinerariesService implements OnModuleInit {
     const token = crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 ngày
 
+    const assignedRole = (customRole === 'VIEWER' || customRole === 'Chỉ xem') ? 'VIEWER' : 'EDITOR';
+
     await this.prisma.itineraryInvite.create({
       data: {
         itineraryId: BigInt(itineraryId),
         invitedByUserId: BigInt(currentUserId),
         email: email.trim().toLowerCase(),
-        role: 'EDITOR', // Luôn là EDITOR khi mời qua Email
+        role: assignedRole,
         token,
         expiresAt,
       },

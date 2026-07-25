@@ -6,6 +6,7 @@ import {
   UseGuards,
   Put,
   Request,
+  Query,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -13,6 +14,11 @@ import { AuthGuard } from '@nestjs/passport';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Get('search-users')
+  async searchUsers(@Query('email') email: string) {
+    return this.authService.searchUsersByEmail(email);
+  }
 
   @Post('register')
   async register(@Body() body: any) {
