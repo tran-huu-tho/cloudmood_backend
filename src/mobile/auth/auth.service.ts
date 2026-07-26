@@ -61,10 +61,6 @@ export class AuthService {
     text: string,
     html: string,
   ) {
-    console.log(
-      `\n========================================\n📧 [EMAIL SENT TO: ${to}]\nSubject: ${subject}\nContent: ${text}\n========================================\n`,
-    );
-
     try {
       const nodemailer = require('nodemailer');
 

@@ -7,7 +7,7 @@ import * as streamifier from 'streamifier';
 export class CloudinaryService {
   uploadFile(
     file: Express.Multer.File,
-    resourceType: 'image' | 'video' = 'image',
+    resourceType: 'image' | 'video' | 'auto' = 'auto',
   ): Promise<UploadApiResponse | UploadApiErrorResponse> {
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(

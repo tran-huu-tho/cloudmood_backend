@@ -297,26 +297,40 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async moderateContent(text: string): Promise<{ isViolation: boolean; category: string | null; reason: string | null }> {
-    const customAiUrl = this.configService.get<string>('CUSTOM_AI_MODERATION_URL') || 'http://localhost:8000/moderate';
+  async moderateContent(text: string): Promise<{
+    isViolation: boolean;
+    label: string | null;
+    category: string | null;
+    reason: string | null;
+    confidence?: number;
+  }> {
+    const customAiUrl =
+      this.configService.get<string>('CUSTOM_AI_MODERATION_URL') ||
+      'http://localhost:8000/moderate';
 
     try {
       this.logger.log(`Using custom AI moderation model at ${customAiUrl}...`);
       const response = await axios.post(customAiUrl, { text }, { timeout: 5000 });
       if (response.status === 200 && response.data) {
-        const { isViolation, category, reason } = response.data;
-        this.logger.log(`Custom AI result: isViolation=${isViolation}, category=${category}`);
+        const { isViolation, label, category, reason, confidence } = response.data;
+        this.logger.log(
+          `Custom AI result: isViolation=${isViolation}, label=${label}, category=${category}`,
+        );
         return {
           isViolation: !!isViolation,
+          label: label || null,
           category: category || null,
           reason: reason || null,
+          confidence,
         };
       }
-      throw new Error(`Failed to call Custom AI service: status code ${response.status}`);
+      throw new Error(
+        `Failed to call Custom AI service: status code ${response.status}`,
+      );
     } catch (error: any) {
       this.logger.error(`⚠️ Custom AI moderation failed: ${error.message}`);
       // Mặc định cho phép nội dung nếu dịch vụ AI offline để không block diễn đàn
-      return { isViolation: false, category: null, reason: null };
+      return { isViolation: false, label: null, category: null, reason: null };
     }
   }
 

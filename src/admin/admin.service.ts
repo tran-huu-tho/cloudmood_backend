@@ -12,13 +12,16 @@ export class AdminService {
 
   // 1. Dashboard & Statistics
   async getDashboardStats() {
-    const [userCount, placeCount, itineraryCount, reviewCount, categoryCount] =
+    const [userCount, placeCount, itineraryCount, reviewCount, categoryCount, reviewAvg] =
       await Promise.all([
         this.prisma.user.count(),
         this.prisma.place.count(),
         this.prisma.itinerary.count(),
         this.prisma.review.count(),
         this.prisma.category.count(),
+        this.prisma.review.aggregate({
+          _avg: { rating: true },
+        }),
       ]);
 
     const recentReviews = await this.prisma.review.findMany({
@@ -49,6 +52,7 @@ export class AdminService {
         itineraryCount,
         reviewCount,
         categoryCount,
+        avgReviewRating: reviewAvg._avg.rating ? Number(reviewAvg._avg.rating.toFixed(1)) : 0,
       },
       recentReviews,
     };
@@ -689,6 +693,9 @@ export class AdminService {
         take: limit,
         include: {
           category: true,
+          _count: {
+            select: { reviews: true },
+          },
         },
       }),
       this.prisma.place.count({ where }),

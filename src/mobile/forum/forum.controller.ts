@@ -91,15 +91,17 @@ export class ForumController {
 
     if (files && files.length > 0) {
       for (const file of files) {
-        const isVideo = file.mimetype.startsWith('video/');
+        const isVideo =
+          (file.mimetype && file.mimetype.startsWith('video/')) ||
+          /\.(mp4|mov|avi|mkv|webm|3gp|flv|wmv)$/i.test(file.originalname);
         try {
           const uploadResult = await this.cloudinaryService.uploadFile(
             file,
-            isVideo ? 'video' : 'image',
+            isVideo ? 'video' : 'auto',
           );
           mediaList.push({
             url: uploadResult.secure_url || uploadResult.url,
-            mediaType: isVideo ? 'VIDEO' : 'IMAGE',
+            mediaType: isVideo ? 'video' : 'image',
           });
         } catch (error) {
           console.error('Lỗi khi tải tệp lên Cloudinary:', error);
@@ -151,14 +153,16 @@ export class ForumController {
     let mediaType: string | undefined = undefined;
 
     if (file) {
-      const isVideo = file.mimetype.startsWith('video/');
+      const isVideo =
+        (file.mimetype && file.mimetype.startsWith('video/')) ||
+        /\.(mp4|mov|avi|mkv|webm|3gp|flv|wmv)$/i.test(file.originalname);
       try {
         const uploadResult = await this.cloudinaryService.uploadFile(
           file,
-          isVideo ? 'video' : 'image',
+          isVideo ? 'video' : 'auto',
         );
         mediaUrl = uploadResult.secure_url || uploadResult.url;
-        mediaType = isVideo ? 'VIDEO' : 'IMAGE';
+        mediaType = isVideo ? 'video' : 'image';
       } catch (error) {
         console.error(
           'Lỗi khi tải tệp đính kèm bình luận lên Cloudinary:',
@@ -203,14 +207,16 @@ export class ForumController {
     let mediaType: string | undefined = undefined;
 
     if (file) {
-      const isVideo = file.mimetype.startsWith('video/');
+      const isVideo =
+        (file.mimetype && file.mimetype.startsWith('video/')) ||
+        /\.(mp4|mov|avi|mkv|webm|3gp|flv|wmv)$/i.test(file.originalname);
       try {
         const uploadResult = await this.cloudinaryService.uploadFile(
           file,
-          isVideo ? 'video' : 'image',
+          isVideo ? 'video' : 'auto',
         );
         mediaUrl = uploadResult.secure_url || uploadResult.url;
-        mediaType = isVideo ? 'VIDEO' : 'IMAGE';
+        mediaType = isVideo ? 'video' : 'image';
       } catch (error) {
         console.error('Lỗi khi tải tệp đính kèm chỉnh sửa bình luận:', error);
       }
@@ -245,15 +251,17 @@ export class ForumController {
 
     if (files && files.length > 0) {
       for (const file of files) {
-        const isVideo = file.mimetype.startsWith('video/');
+        const isVideo =
+          (file.mimetype && file.mimetype.startsWith('video/')) ||
+          /\.(mp4|mov|avi|mkv|webm|3gp|flv|wmv)$/i.test(file.originalname);
         try {
           const uploadResult = await this.cloudinaryService.uploadFile(
             file,
-            isVideo ? 'video' : 'image',
+            isVideo ? 'video' : 'auto',
           );
           mediaList.push({
             url: uploadResult.secure_url || uploadResult.url,
-            mediaType: isVideo ? 'VIDEO' : 'IMAGE',
+            mediaType: isVideo ? 'video' : 'image',
           });
         } catch (error) {
           console.error('Lỗi khi tải tệp lên Cloudinary:', error);
