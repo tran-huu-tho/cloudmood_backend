@@ -54,8 +54,26 @@ export class AdminService {
     };
   }
 
-  async getItineraries(limit: number = 10000) {
+  async getItineraries(
+    limit: number = 10000,
+    type?: string,
+    isAi?: string,
+  ) {
+    const where: any = {};
+    if (type === 'guide') {
+      where.isGuide = true;
+    } else if (type === 'trip') {
+      where.OR = [{ isGuide: false }, { isGuide: null }];
+    }
+
+    if (isAi === 'true') {
+      where.isAi = true;
+    } else if (isAi === 'false') {
+      where.isAi = false;
+    }
+
     return this.prisma.itinerary.findMany({
+      where,
       orderBy: { id: 'desc' },
       take: limit,
       include: {
@@ -67,8 +85,279 @@ export class AdminService {
             avatar: true,
           },
         },
+        _count: {
+          select: {
+            savedPlaces: true,
+            details: true,
+            expenses: true,
+            members: true,
+          },
+        },
+        expenses: {
+          select: {
+            amount: true,
+          },
+        },
       },
     });
+  }
+
+  async getItineraryDetail(id: string) {
+    const itineraryId = BigInt(id);
+    const itinerary = await this.prisma.itinerary.findUnique({
+      where: { id: itineraryId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatar: true,
+          },
+        },
+        savedPlaces: {
+          include: {
+            place: {
+              include: {
+                category: true,
+                photos: true,
+              },
+            },
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
+        details: {
+          include: {
+            place: {
+              include: {
+                category: true,
+                photos: true,
+              },
+            },
+          },
+          orderBy: [{ day: 'asc' }, { sortOrder: 'asc' }],
+        },
+        expenses: {
+          orderBy: { id: 'desc' },
+        },
+        members: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                avatar: true,
+              },
+            },
+          },
+        },
+        invites: true,
+      },
+    });
+
+    if (!itinerary) {
+      throw new BadRequestException('Hành trình không tồn tại.');
+    }
+
+    return itinerary;
+  }
+
+  async publishGuideToBlog(id: string, body: any) {
+    const itineraryId = BigInt(id);
+    const itinerary = await this.prisma.itinerary.findUnique({
+      where: { id: itineraryId },
+      include: {
+        savedPlaces: {
+          include: { place: true },
+        },
+      },
+    });
+
+    if (!itinerary) {
+      throw new BadRequestException('Hành trình/Hướng dẫn không tồn tại.');
+    }
+
+    const title = body?.title || itinerary.title;
+    const description =
+      body?.description ||
+      `Hướng dẫn du lịch ${itinerary.destination} vô cùng chi tiết từ CloudMood.`;
+    const coverImage =
+      body?.coverImage || itinerary.coverImage || '/logo-xoanen-cloudmood.png';
+
+    const post = await this.prisma.explorePost.create({
+      data: {
+        title,
+        description,
+        coverImage,
+        postType: 'GUIDE',
+        authorId: itinerary.userId,
+        originalItineraryId: itinerary.id,
+        destination: itinerary.destination,
+        status: 'PUBLISHED',
+      },
+    });
+
+    if (itinerary.savedPlaces && itinerary.savedPlaces.length > 0) {
+      const itemsData = itinerary.savedPlaces.map((sp, idx) => ({
+        postId: post.id,
+        itemType: 'PLACE',
+        sortOrder: idx + 1,
+        content: sp.noteText || sp.place?.description || sp.place?.name || '',
+        placeId: sp.placeId,
+      }));
+
+      await this.prisma.explorePostItem.createMany({
+        data: itemsData,
+      });
+    }
+
+    return post;
+  }
+
+  // 1b. Explore Posts / Blog Management
+  async getExplorePosts() {
+    return this.prisma.explorePost.findMany({
+      orderBy: { id: 'desc' },
+      include: {
+        author: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            avatar: true,
+          },
+        },
+        originalItinerary: {
+          select: {
+            id: true,
+            title: true,
+            isGuide: true,
+          },
+        },
+        _count: {
+          select: {
+            items: true,
+            likes: true,
+          },
+        },
+        items: {
+          include: {
+            place: true,
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+  }
+
+  async createExplorePost(data: any) {
+    if (!data.title) {
+      throw new BadRequestException('Tiêu đề bài viết không được để trống.');
+    }
+
+    const post = await this.prisma.explorePost.create({
+      data: {
+        title: data.title,
+        description: data.description || '',
+        coverImage: data.coverImage || null,
+        postType: data.postType || 'BLOG',
+        destination: data.destination || '',
+        status: data.status || 'PUBLISHED',
+        authorId: data.authorId ? BigInt(data.authorId) : null,
+      },
+    });
+
+    if (Array.isArray(data.items) && data.items.length > 0) {
+      const itemsData = data.items.map((item: any, index: number) => ({
+        postId: post.id,
+        itemType: item.itemType || 'TEXT',
+        sortOrder: index + 1,
+        content: item.content || '',
+        placeId: item.placeId ? BigInt(item.placeId) : null,
+      }));
+      await this.prisma.explorePostItem.createMany({ data: itemsData });
+    }
+
+    return post;
+  }
+
+  async deleteExplorePost(id: string) {
+    const postId = BigInt(id);
+    const post = await this.prisma.explorePost.findUnique({
+      where: { id: postId },
+    });
+    if (!post) {
+      throw new BadRequestException('Bài viết không tồn tại.');
+    }
+
+    await this.prisma.explorePostItem.deleteMany({ where: { postId } });
+    await this.prisma.explorePostLike.deleteMany({ where: { postId } });
+    return this.prisma.explorePost.delete({ where: { id: postId } });
+  }
+
+  // 1c. Checklist Templates Management
+  async getChecklistTemplates() {
+    return this.prisma.checklistTemplateCategory.findMany({
+      orderBy: { id: 'asc' },
+      include: {
+        items: {
+          orderBy: { id: 'asc' },
+        },
+      },
+    });
+  }
+
+  async createChecklistCategory(data: any) {
+    if (!data.name) {
+      throw new BadRequestException('Tên danh mục không được để trống.');
+    }
+    return this.prisma.checklistTemplateCategory.create({
+      data: {
+        name: data.name,
+        tabType: data.tabType || 'GENERAL',
+      },
+    });
+  }
+
+  async updateChecklistCategory(id: string, data: any) {
+    const catId = BigInt(id);
+    return this.prisma.checklistTemplateCategory.update({
+      where: { id: catId },
+      data: {
+        name: data.name,
+        tabType: data.tabType,
+      },
+    });
+  }
+
+  async deleteChecklistCategory(id: string) {
+    const catId = BigInt(id);
+    await this.prisma.checklistTemplateItem.deleteMany({
+      where: { categoryId: catId },
+    });
+    return this.prisma.checklistTemplateCategory.delete({
+      where: { id: catId },
+    });
+  }
+
+  async createChecklistItem(data: any) {
+    if (!data.categoryId || !data.name) {
+      throw new BadRequestException(
+        'Tên vật dụng và danh mục không được để trống.',
+      );
+    }
+    return this.prisma.checklistTemplateItem.create({
+      data: {
+        categoryId: BigInt(data.categoryId),
+        name: data.name,
+      },
+    });
+  }
+
+  async deleteChecklistItem(id: string) {
+    const itemId = BigInt(id);
+    return this.prisma.checklistTemplateItem.delete({ where: { id: itemId } });
   }
 
   async deleteItinerary(id: string) {

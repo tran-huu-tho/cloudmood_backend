@@ -26,14 +26,78 @@ export class AdminController {
   }
 
   @Get('itineraries')
-  async getItineraries(@Query('limit') limit?: string) {
+  async getItineraries(
+    @Query('limit') limit?: string,
+    @Query('type') type?: string,
+    @Query('isAi') isAi?: string,
+  ) {
     const limitNum = limit ? parseInt(limit) : 10000;
-    return this.adminService.getItineraries(limitNum);
+    return this.adminService.getItineraries(limitNum, type, isAi);
+  }
+
+  @Get('itineraries/:id')
+  async getItineraryDetail(@Param('id') id: string) {
+    return this.adminService.getItineraryDetail(id);
   }
 
   @Delete('itineraries/:id')
   async deleteItinerary(@Param('id') id: string) {
     return this.adminService.deleteItinerary(id);
+  }
+
+  @Post('guides/:id/publish-blog')
+  async publishGuideToBlog(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.publishGuideToBlog(id, body);
+  }
+
+  // 1b. Explore Posts / Blog Management
+  @Get('explore-posts')
+  async getExplorePosts() {
+    return this.adminService.getExplorePosts();
+  }
+
+  @Post('explore-posts')
+  async createExplorePost(@Body() body: any) {
+    return this.adminService.createExplorePost(body);
+  }
+
+  @Delete('explore-posts/:id')
+  async deleteExplorePost(@Param('id') id: string) {
+    return this.adminService.deleteExplorePost(id);
+  }
+
+  // 1c. Checklist Templates Management
+  @Get('checklist-templates')
+  async getChecklistTemplates() {
+    return this.adminService.getChecklistTemplates();
+  }
+
+  @Post('checklist-templates/categories')
+  async createChecklistCategory(@Body() body: any) {
+    return this.adminService.createChecklistCategory(body);
+  }
+
+  @Put('checklist-templates/categories/:id')
+  async updateChecklistCategory(
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    return this.adminService.updateChecklistCategory(id, body);
+  }
+
+  @Delete('checklist-templates/categories/:id')
+  async deleteChecklistCategory(@Param('id') id: string) {
+    return this.adminService.deleteChecklistCategory(id);
+  }
+
+  @Post('checklist-templates/items')
+  async createChecklistItem(@Body() body: any) {
+    return this.adminService.createChecklistItem(body);
+  }
+
+  @Delete('checklist-templates/items/:id')
+  async deleteChecklistItem(@Param('id') id: string) {
+    return this.adminService.deleteChecklistItem(id);
   }
 
   // 2. User Management
