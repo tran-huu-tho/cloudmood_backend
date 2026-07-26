@@ -1199,4 +1199,59 @@ export class ItinerariesService implements OnModuleInit {
       createdAt: expense.createdAt,
     };
   }
+
+  // --- SETTLEMENT METHODS ---
+  async getSettlements(itineraryId: number) {
+    const list = await this.prisma.itinerarySettlement.findMany({
+      where: { itineraryId: BigInt(itineraryId) },
+      orderBy: { createdAt: 'desc' },
+    });
+    return list.map((st) => ({
+      id: st.id.toString(),
+      itineraryId: st.itineraryId.toString(),
+      fromUserId: st.fromUserId ? st.fromUserId.toString() : null,
+      fromName: st.fromName,
+      toUserId: st.toUserId ? st.toUserId.toString() : null,
+      toName: st.toName,
+      amount: st.amount,
+      date: st.date.toISOString(),
+      createdAt: st.createdAt.toISOString(),
+    }));
+  }
+
+  async addSettlement(itineraryId: number, data: any) {
+    const settlement = await this.prisma.itinerarySettlement.create({
+      data: {
+        itineraryId: BigInt(itineraryId),
+        fromUserId: data.fromUserId ? BigInt(data.fromUserId) : null,
+        fromName: data.fromName,
+        toUserId: data.toUserId ? BigInt(data.toUserId) : null,
+        toName: data.toName,
+        amount: Number(data.amount),
+        date: data.date ? new Date(data.date) : new Date(),
+      },
+    });
+    return {
+      id: settlement.id.toString(),
+      itineraryId: settlement.itineraryId.toString(),
+      fromUserId: settlement.fromUserId ? settlement.fromUserId.toString() : null,
+      fromName: settlement.fromName,
+      toUserId: settlement.toUserId ? settlement.toUserId.toString() : null,
+      toName: settlement.toName,
+      amount: settlement.amount,
+      date: settlement.date.toISOString(),
+      createdAt: settlement.createdAt.toISOString(),
+    };
+  }
+
+  async deleteSettlement(settlementId: number) {
+    try {
+      await this.prisma.itinerarySettlement.deleteMany({
+        where: { id: BigInt(settlementId) },
+      });
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: (e as any)?.message };
+    }
+  }
 }

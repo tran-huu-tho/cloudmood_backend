@@ -251,4 +251,20 @@ export class ItinerariesController {
   ) {
     return this.itinerariesService.updateExpense(+expenseId, body);
   }
+
+  // --- Settlement Endpoints ---
+  @Get(':id/settlements')
+  async getSettlements(@Param('id') id: string) {
+    return this.itinerariesService.getSettlements(+id);
+  }
+
+  @Post(':id/settlements')
+  async addSettlement(@Param('id') id: string, @Body() body: any) {
+    return this.itinerariesService.addSettlement(+id, body);
+  }
+
+  @Delete('settlements/:settlementId')
+  async deleteSettlement(@Param('settlementId') settlementId: string) {
+    return this.itinerariesService.deleteSettlement(+settlementId);
+  }
 }
