@@ -70,6 +70,11 @@ export class ItinerariesController {
     return this.itinerariesService.getChecklistTemplates();
   }
 
+  @Get('currency-rates')
+  async getCurrencyRates() {
+    return this.itinerariesService.getCurrencyRates();
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.itinerariesService.findOne(+id);

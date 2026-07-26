@@ -42,6 +42,12 @@ export class ItinerariesService implements OnModuleInit {
       await this.prisma.$executeRawUnsafe(
         `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "coverImage" text`,
       );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "currencyCode" varchar DEFAULT 'VND'`,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `ALTER TABLE "Itinerary" ADD COLUMN IF NOT EXISTS "currencySymbol" varchar DEFAULT 'đ'`,
+      );
       // Link ItineraryExpense to places (1-1 FK)
       await this.prisma.$executeRawUnsafe(
         `ALTER TABLE "ItineraryExpense" ADD COLUMN IF NOT EXISTS "savedPlaceId" bigint`,
@@ -358,6 +364,11 @@ export class ItinerariesService implements OnModuleInit {
 
   async update(id: number, data: any) {
     const updateData = { ...data };
+    const currencySymbol = updateData.currencySymbol;
+    const currencyCode = updateData.currencyCode;
+    delete updateData.currencySymbol;
+    delete updateData.currencyCode;
+
     if (updateData.days !== undefined) {
       updateData.days = BigInt(updateData.days);
     }
@@ -369,6 +380,23 @@ export class ItinerariesService implements OnModuleInit {
       where: { id: BigInt(id) },
       data: updateData,
     });
+
+    if (currencySymbol !== undefined || currencyCode !== undefined) {
+      if (currencySymbol !== undefined) {
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE "Itinerary" SET "currencySymbol" = $1 WHERE id = $2`,
+          currencySymbol,
+          BigInt(id),
+        );
+      }
+      if (currencyCode !== undefined) {
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE "Itinerary" SET "currencyCode" = $1 WHERE id = $2`,
+          currencyCode,
+          BigInt(id),
+        );
+      }
+    }
 
     if (data.coverImage !== undefined) {
       await this.prisma.explorePost.updateMany({
@@ -1158,9 +1186,32 @@ export class ItinerariesService implements OnModuleInit {
   }
 
   async deleteExpense(expenseId: number) {
-    await this.prisma.itineraryExpense.delete({
+    const expense = await this.prisma.itineraryExpense.findUnique({
       where: { id: BigInt(expenseId) },
     });
+
+    if (expense) {
+      // 1. Delete settlements linked to this expenseId
+      await this.prisma.itinerarySettlement.deleteMany({
+        where: { expenseId: BigInt(expenseId) },
+      });
+
+      // 2. Delete the expense
+      await this.prisma.itineraryExpense.delete({
+        where: { id: BigInt(expenseId) },
+      });
+
+      // 3. If no remaining expenses exist for this itinerary, clear all settlements for this itinerary
+      const remainingCount = await this.prisma.itineraryExpense.count({
+        where: { itineraryId: expense.itineraryId },
+      });
+      if (remainingCount === 0) {
+        await this.prisma.itinerarySettlement.deleteMany({
+          where: { itineraryId: expense.itineraryId },
+        });
+      }
+    }
+
     return { success: true };
   }
 
@@ -1209,6 +1260,7 @@ export class ItinerariesService implements OnModuleInit {
     return list.map((st) => ({
       id: st.id.toString(),
       itineraryId: st.itineraryId.toString(),
+      expenseId: st.expenseId ? st.expenseId.toString() : null,
       fromUserId: st.fromUserId ? st.fromUserId.toString() : null,
       fromName: st.fromName,
       toUserId: st.toUserId ? st.toUserId.toString() : null,
@@ -1223,6 +1275,7 @@ export class ItinerariesService implements OnModuleInit {
     const settlement = await this.prisma.itinerarySettlement.create({
       data: {
         itineraryId: BigInt(itineraryId),
+        expenseId: data.expenseId ? BigInt(data.expenseId) : null,
         fromUserId: data.fromUserId ? BigInt(data.fromUserId) : null,
         fromName: data.fromName,
         toUserId: data.toUserId ? BigInt(data.toUserId) : null,
@@ -1234,6 +1287,7 @@ export class ItinerariesService implements OnModuleInit {
     return {
       id: settlement.id.toString(),
       itineraryId: settlement.itineraryId.toString(),
+      expenseId: settlement.expenseId ? settlement.expenseId.toString() : null,
       fromUserId: settlement.fromUserId ? settlement.fromUserId.toString() : null,
       fromName: settlement.fromName,
       toUserId: settlement.toUserId ? settlement.toUserId.toString() : null,
@@ -1253,5 +1307,65 @@ export class ItinerariesService implements OnModuleInit {
     } catch (e) {
       return { success: false, error: (e as any)?.message };
     }
+  }
+
+  private cachedRates: { rates: Record<string, number>; updatedAt: string } | null = null;
+
+  async getCurrencyRates() {
+    const NOW = new Date();
+    if (this.cachedRates && (NOW.getTime() - new Date(this.cachedRates.updatedAt).getTime()) < 6 * 3600 * 1000) {
+      return this.cachedRates;
+    }
+
+    const defaultRates: Record<string, number> = {
+      VND: 1.0,
+      USD: 26320.01,
+      EUR: 28500.0,
+      JPY: 165.0,
+      KRW: 19.5,
+      CNY: 3620.0,
+      GBP: 33500.0,
+      SGD: 19400.0,
+      THB: 720.0,
+      AUD: 17100.0,
+      CAD: 18800.0,
+      TWD: 810.0,
+    };
+
+    try {
+      const response = await fetch('https://open.er-api.com/v6/latest/USD');
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.rates && data.rates.VND) {
+          const usdToVnd = Number(data.rates.VND);
+          const computedRates: Record<string, number> = { VND: 1.0 };
+
+          Object.keys(defaultRates).forEach((code) => {
+            if (code === 'VND') {
+              computedRates['VND'] = 1.0;
+            } else if (data.rates[code]) {
+              const codeRateToUsd = Number(data.rates[code]);
+              computedRates[code] = Math.round((usdToVnd / codeRateToUsd) * 100) / 100;
+            } else {
+              computedRates[code] = defaultRates[code];
+            }
+          });
+
+          this.cachedRates = {
+            rates: computedRates,
+            updatedAt: NOW.toISOString(),
+          };
+          return this.cachedRates;
+        }
+      }
+    } catch (e) {
+      console.log('Using default currency rates fallback:', e);
+    }
+
+    this.cachedRates = {
+      rates: defaultRates,
+      updatedAt: NOW.toISOString(),
+    };
+    return this.cachedRates;
   }
 }
