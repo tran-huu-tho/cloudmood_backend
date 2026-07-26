@@ -72,7 +72,7 @@ export class AdminService {
       where.isAi = false;
     }
 
-    return this.prisma.itinerary.findMany({
+    const itineraries = await this.prisma.itinerary.findMany({
       where,
       orderBy: { id: 'desc' },
       take: limit,
@@ -93,13 +93,22 @@ export class AdminService {
             members: true,
           },
         },
-        expenses: {
-          select: {
-            amount: true,
-          },
-        },
+        expenses: true,
       },
     });
+
+    return itineraries.map((it) => ({
+      ...it,
+      id: it.id.toString(),
+      userId: it.userId.toString(),
+      expenses: (it.expenses || []).map((e) => ({
+        id: e.id.toString(),
+        itineraryId: e.itineraryId.toString(),
+        amount: Number(e.amount) || 0,
+        currencySymbol: e.currencySymbol,
+        currencyCode: e.currencyCode,
+      })),
+    }));
   }
 
   async getItineraryDetail(id: string) {
@@ -115,14 +124,23 @@ export class AdminService {
             avatar: true,
           },
         },
+        sections: {
+          orderBy: { sortOrder: 'asc' },
+        },
         savedPlaces: {
           include: {
             place: {
               include: {
                 category: true,
                 photos: true,
+                reviews: {
+                  include: { user: true },
+                  orderBy: { id: 'desc' },
+                  take: 10,
+                },
               },
             },
+            expense: true,
           },
           orderBy: { sortOrder: 'asc' },
         },
@@ -132,12 +150,31 @@ export class AdminService {
               include: {
                 category: true,
                 photos: true,
+                reviews: {
+                  include: { user: true },
+                  orderBy: { id: 'desc' },
+                  take: 10,
+                },
               },
             },
+            expense: true,
           },
           orderBy: [{ day: 'asc' }, { sortOrder: 'asc' }],
         },
         expenses: {
+          include: {
+            settlements: true,
+            savedPlace: {
+              include: {
+                place: true,
+              },
+            },
+            detail: {
+              include: {
+                place: true,
+              },
+            },
+          },
           orderBy: { id: 'desc' },
         },
         members: {
@@ -160,7 +197,70 @@ export class AdminService {
       throw new BadRequestException('Hành trình không tồn tại.');
     }
 
-    return itinerary;
+    // Query all settlements by itineraryId OR linked expenseIds
+    const expenseIds = itinerary.expenses.map((e) => e.id);
+    const rawSettlements = await this.prisma.itinerarySettlement.findMany({
+      where: {
+        OR: [
+          { itineraryId },
+          ...(expenseIds.length > 0 ? [{ expenseId: { in: expenseIds } }] : []),
+        ],
+      },
+      include: {
+        expense: true,
+      },
+      orderBy: { id: 'desc' },
+    });
+
+    const formattedSettlements = rawSettlements.map((item) => ({
+      id: item.id.toString(),
+      itineraryId: item.itineraryId.toString(),
+      expenseId: item.expenseId ? item.expenseId.toString() : null,
+      fromUserId: item.fromUserId ? item.fromUserId.toString() : null,
+      fromName: item.fromName,
+      toUserId: item.toUserId ? item.toUserId.toString() : null,
+      toName: item.toName,
+      amount: Number(item.amount) || 0,
+      date: item.date ? item.date.toISOString() : null,
+      createdAt: item.createdAt ? item.createdAt.toISOString() : null,
+      expense: item.expense
+        ? {
+            id: item.expense.id.toString(),
+            title: item.expense.title,
+            amount: Number(item.expense.amount) || 0,
+            category: item.expense.category,
+            payer: item.expense.payer,
+            share: item.expense.share,
+          }
+        : null,
+    }));
+
+    return {
+      ...itinerary,
+      settlements: formattedSettlements,
+    };
+  }
+
+  async updateItinerary(id: string, body: any) {
+    const itineraryId = BigInt(id);
+    const existing = await this.prisma.itinerary.findUnique({
+      where: { id: itineraryId },
+    });
+    if (!existing) {
+      throw new BadRequestException('Hành trình không tồn tại.');
+    }
+
+    const data: any = {};
+    if (body.coverImage !== undefined) data.coverImage = body.coverImage;
+    if (body.title !== undefined) data.title = body.title;
+    if (body.destination !== undefined) data.destination = body.destination;
+    if (body.budget !== undefined) data.budget = body.budget ? BigInt(body.budget) : null;
+    if (body.days !== undefined) data.days = body.days ? BigInt(body.days) : null;
+
+    return this.prisma.itinerary.update({
+      where: { id: itineraryId },
+      data,
+    });
   }
 
   async publishGuideToBlog(id: string, body: any) {

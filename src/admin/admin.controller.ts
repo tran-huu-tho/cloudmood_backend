@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -38,6 +39,16 @@ export class AdminController {
   @Get('itineraries/:id')
   async getItineraryDetail(@Param('id') id: string) {
     return this.adminService.getItineraryDetail(id);
+  }
+
+  @Patch('itineraries/:id')
+  async updateItineraryPatch(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateItinerary(id, body);
+  }
+
+  @Put('itineraries/:id')
+  async updateItineraryPut(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateItinerary(id, body);
   }
 
   @Delete('itineraries/:id')
