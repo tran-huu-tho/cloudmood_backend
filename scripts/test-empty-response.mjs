@@ -4,7 +4,7 @@ import 'dotenv/config';
 const apiKey = process.env.AI_API_KEY || 'AQ.Ab8RN6KSYdYIPJ_KlZ1Fz7LMbkflp-Tj4bNPsjdwMvavSxSKnQ';
 
 async function main() {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
   const message = 'cái siêu thị lotte cần thơ nằm ở địa chỉ nào vậy';
 
   console.log(`Sending message: "${message}"`);

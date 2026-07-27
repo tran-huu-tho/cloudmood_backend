@@ -22,97 +22,58 @@ interface GeminiResponseData {
 @Injectable()
 export class MobileAiService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MobileAiService.name);
-  private readonly apiKeys: string[] = [];
-  private currentKeyIndex = 0;
+  private readonly apiKey: string = '';
   private pythonProcess: ChildProcess | null = null;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    const rawKeys = this.configService.get<string>('AI_API_KEY') || '';
-    this.apiKeys = rawKeys
-      .split(',')
-      .map((k) => k.trim())
-      .filter(Boolean);
-  }
-
-  private getApiKey(): string {
-    if (this.apiKeys.length === 0) return '';
-    return this.apiKeys[this.currentKeyIndex];
-  }
-
-  private rotateApiKey() {
-    if (this.apiKeys.length <= 1) return;
-    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
-    this.logger.warn(`API key rotated to index ${this.currentKeyIndex}.`);
+    const rawKey = this.configService.get<string>('AI_API_KEY') || '';
+    this.apiKey = rawKey.split(',')[0].trim();
   }
 
   private async postWithKeyRotation(
     urlPath: string,
     payload: any,
   ): Promise<any> {
-    if (this.apiKeys.length === 0) {
+    if (!this.apiKey) {
       throw new Error('Chưa cấu hình AI_API_KEY trong tệp .env.');
     }
 
-    const isGemini35 = urlPath.includes('gemini-3.5-flash');
     const operation = urlPath.includes(':')
       ? urlPath.split(':')[1]
       : 'generateContent';
 
-    const modelsToTry = isGemini35
-      ? [
-          'models/gemini-3.5-flash',
-          'models/gemini-2.5-flash',
-          'models/gemini-2.5-flash-lite',
-        ]
-      : [urlPath.split(':')[0]];
+    const modelsToTry = [
+      'models/gemini-3.6-flash',
+      'models/gemini-3.5-flash',
+      'models/gemini-3.5-flash-lite',
+      'models/gemini-2.5-flash',
+      'models/gemini-2.5-flash-lite',
+      'models/gemini-2.0-flash',
+      'models/gemini-1.5-flash',
+    ];
 
-    const maxAttempts = Math.max(this.apiKeys.length, 1);
     let lastError: any;
 
     for (const model of modelsToTry) {
-      let attempts = 0;
-      while (attempts < maxAttempts) {
-        attempts++;
-        const currentKey = this.getApiKey();
-        const url = `https://generativelanguage.googleapis.com/v1beta/${model}:${operation}?key=${currentKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/${model}:${operation}?key=${this.apiKey}`;
 
-        try {
-          const response = await axios.post(url, payload, { timeout: 30000 });
-          return response;
-        } catch (err: any) {
-          lastError = err;
-          const apiErrorMessage = err.response?.data?.error?.message || '';
-          const isQuotaExceeded =
-            err.response?.status === 429 ||
-            apiErrorMessage.toLowerCase().includes('quota') ||
-            err.message.toLowerCase().includes('quota') ||
-            err.message.includes('429');
-
-          if (isQuotaExceeded) {
-            this.logger.warn(
-              `API Key index ${this.currentKeyIndex} hit rate limit for ${model}.`,
-            );
-            if (attempts < maxAttempts) {
-              this.logger.warn(`Rotating to next key...`);
-              this.rotateApiKey();
-              continue;
-            } else {
-              this.logger.warn(
-                `All keys exhausted for ${model}. Falling back to next model...`,
-              );
-              this.rotateApiKey(); // rotate for the next model's first attempt
-              break; // breaks while loop, moves to next model
-            }
-          }
-          throw err;
-        }
+      try {
+        const response = await axios.post(url, payload, { timeout: 30000 });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        const status = err.response?.status;
+        const apiErrorMessage = err.response?.data?.error?.message || '';
+        this.logger.warn(
+          `Mô hình ${model} không khả dụng (Mã ${status}): ${apiErrorMessage || err.message}. Đang thử mô hình tiếp theo...`,
+        );
       }
     }
 
-    throw lastError || new Error('All models and keys failed.');
+    throw lastError || new Error('Tất cả mô hình AI đều gặp lỗi.');
   }
 
   async askPlaceQuestion(placeName: string, question: string): Promise<string> {

@@ -7,80 +7,58 @@ import axios from 'axios';
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly apiKeys: string[] = [];
-  private currentKeyIndex = 0;
+  private readonly apiKey: string = '';
 
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
   ) {
-    const rawKeys = this.configService.get<string>('AI_API_KEY') || '';
-    this.apiKeys = rawKeys
-      .split(',')
-      .map((k) => k.trim())
-      .filter(Boolean);
-  }
-
-  private getApiKey(): string {
-    if (this.apiKeys.length === 0) return '';
-    return this.apiKeys[this.currentKeyIndex];
-  }
-
-  private rotateApiKey() {
-    if (this.apiKeys.length <= 1) return;
-    this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
-    this.logger.warn(`API key rotated to index ${this.currentKeyIndex}.`);
+    const rawKey = this.configService.get<string>('AI_API_KEY') || '';
+    this.apiKey = rawKey.split(',')[0].trim();
   }
 
   private async postWithKeyRotation(
     urlPath: string,
     payload: any,
   ): Promise<any> {
-    if (this.apiKeys.length === 0) {
+    if (!this.apiKey) {
       throw new Error('Chưa cấu hình AI_API_KEY trong tệp .env.');
     }
 
-    let attempts = 0;
-    const maxAttempts = Math.max(this.apiKeys.length, 1);
+    const operation = urlPath.includes(':')
+      ? urlPath.split(':')[1]
+      : 'generateContent';
 
-    while (attempts < maxAttempts) {
-      attempts++;
-      const currentKey = this.getApiKey();
-      const url = `https://generativelanguage.googleapis.com/v1beta/${urlPath}?key=${currentKey}`;
+    const modelsToTry = [
+      'models/gemini-3.6-flash',
+      'models/gemini-3.5-flash',
+      'models/gemini-3.5-flash-lite',
+      'models/gemini-2.5-flash',
+      'models/gemini-2.5-flash-lite',
+      'models/gemini-2.0-flash',
+      'models/gemini-1.5-flash',
+    ];
+
+    let lastError: any;
+
+    for (const model of modelsToTry) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/${model}:${operation}?key=${this.apiKey}`;
 
       try {
         const response = await axios.post(url, payload, { timeout: 30000 });
         return response;
       } catch (err: any) {
+        lastError = err;
+        const status = err.response?.status;
         const apiErrorMessage = err.response?.data?.error?.message || '';
-        const isQuotaExceeded =
-          err.response?.status === 429 ||
-          apiErrorMessage.toLowerCase().includes('quota') ||
-          err.message.toLowerCase().includes('quota') ||
-          err.message.includes('429');
-
-        if (
-          isQuotaExceeded &&
-          this.apiKeys.length > 1 &&
-          attempts < maxAttempts
-        ) {
-          const oldIndex = this.currentKeyIndex;
-          this.logger.warn(
-            `API Key index ${this.currentKeyIndex} hit rate limit. Rotating to next key...`,
-          );
-          this.rotateApiKey();
-          this.notificationsService.addNotification(
-            'rotation',
-            'Xoay vòng API Key thành công',
-            `Key số ${oldIndex + 1} bị cạn hạn ngạch (429). Đã tự động xoay sang Key số ${this.currentKeyIndex + 1} cho Trợ lý AI (MoodBros).`,
-          );
-          continue; // Retry with the next key
-        }
-
-        throw err;
+        this.logger.warn(
+          `Mô hình ${model} không khả dụng (Mã ${status}): ${apiErrorMessage || err.message}. Đang thử mô hình tiếp theo...`,
+        );
       }
     }
+
+    throw lastError || new Error('Tất cả mô hình AI đều gặp lỗi.');
   }
 
   // System instructions for the model
@@ -340,7 +318,7 @@ export class AiService {
 
   // Main chat session call
   async chat(message: string, history: any[] = []) {
-    if (this.apiKeys.length === 0) {
+    if (!this.apiKey) {
       return {
         text: 'Lỗi cấu trúc: Hệ thống chưa cấu hình AI_API_KEY trong tệp .env.',
         widgets: [],
@@ -415,16 +393,22 @@ export class AiService {
       };
     } catch (err: any) {
       this.logger.error(`Gemini AI Chat Error: ${err.message}`);
+      const status = err.response?.status;
       const apiErrorMessage = err.response?.data?.error?.message || '';
-      const isQuotaExceeded =
-        err.response?.status === 429 ||
-        apiErrorMessage.toLowerCase().includes('quota') ||
-        err.message.toLowerCase().includes('quota') ||
-        err.message.includes('429');
+      const lowerMsg = (apiErrorMessage + ' ' + err.message).toLowerCase();
 
-      if (isQuotaExceeded) {
+      const isQuotaOrService =
+        status === 429 ||
+        status === 503 ||
+        lowerMsg.includes('quota') ||
+        lowerMsg.includes('overloaded') ||
+        lowerMsg.includes('unavailable') ||
+        lowerMsg.includes('503') ||
+        lowerMsg.includes('429');
+
+      if (isQuotaOrService) {
         return {
-          text: 'MoodBros đang nhận quá nhiều yêu cầu cùng lúc (Rate Limit của gói AI miễn phí). Bạn vui lòng đợi khoảng 8-10 giây rồi gửi lại câu lệnh nhé! 🙏',
+          text: 'Máy chủ Google Gemini AI hiện đang quá tải hoặc tạm thời không khả dụng (Lỗi 503 / 429). Bạn vui lòng chờ 5-10 giây rồi thử gửi lại câu hỏi nhé! 🙏',
           widgets: [],
         };
       }

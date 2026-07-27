@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface NotificationItem {
   id: number;
@@ -11,38 +12,43 @@ export interface NotificationItem {
 
 @Injectable()
 export class NotificationsService {
-  private notifications: NotificationItem[] = [
+  private inMemoryNotifications: NotificationItem[] = [
     {
-      id: 1,
+      id: 9991,
       type: 'warning',
       title: 'Đánh giá mới cần kiểm duyệt',
       message:
         'Có 1 nhận xét 1 sao mới tại "Quán Ăn Cây Trứng Cá" cần admin xử lý.',
-      createdAt: new Date(Date.now() - 5 * 60000), // 5 mins ago
-      isRead: false,
-    },
-    {
-      id: 2,
-      type: 'rotation',
-      title: 'Xoay vòng API Key thành công',
-      message:
-        'Key số 1 bị cạn hạn ngạch (429). Đã tự động xoay vòng sang Key số 2.',
-      createdAt: new Date(Date.now() - 15 * 60000), // 15 mins ago
-      isRead: false,
-    },
-    {
-      id: 3,
-      type: 'info',
-      title: 'Trợ lý AI (MoodBros) sẵn sàng',
-      message: 'Cấu hình hoàn tất 9 API Key mới. Khả năng xử lý tăng mạnh.',
-      createdAt: new Date(Date.now() - 60 * 60000), // 1 hour ago
+      createdAt: new Date(Date.now() - 15 * 60000),
       isRead: false,
     },
   ];
-  private nextId = 4;
+  private nextId = 1000;
 
-  getNotifications(): NotificationItem[] {
-    return this.notifications;
+  constructor(private readonly prisma: PrismaService) {}
+
+  async getNotifications(): Promise<NotificationItem[]> {
+    try {
+      // Query places pending approval (isApproved === false)
+      const pendingPlaces = await this.prisma.place.findMany({
+        where: { isApproved: false },
+        take: 10,
+        orderBy: { id: 'desc' },
+      });
+
+      const pendingNotifications: NotificationItem[] = pendingPlaces.map((p, idx) => ({
+        id: Number(p.id) || (idx + 1),
+        type: 'warning',
+        title: 'Địa điểm mới cần được duyệt',
+        message: `Địa điểm "${p.name}" (${p.address || 'Chưa có địa chỉ'}) vừa được đề xuất và đang chờ admin phê duyệt.`,
+        createdAt: (p as any).createdAt ? new Date((p as any).createdAt) : new Date(),
+        isRead: false,
+      }));
+
+      return [...pendingNotifications, ...this.inMemoryNotifications];
+    } catch (e) {
+      return this.inMemoryNotifications;
+    }
   }
 
   addNotification(
@@ -50,6 +56,8 @@ export class NotificationsService {
     title: string,
     message: string,
   ) {
+    if (type === 'rotation') return null; // Ignore API rotation notifications
+
     const item: NotificationItem = {
       id: this.nextId++,
       type,
@@ -58,23 +66,22 @@ export class NotificationsService {
       createdAt: new Date(),
       isRead: false,
     };
-    this.notifications.unshift(item);
+    this.inMemoryNotifications.unshift(item);
 
-    // Keep max 30 items
-    if (this.notifications.length > 30) {
-      this.notifications = this.notifications.slice(0, 30);
+    if (this.inMemoryNotifications.length > 30) {
+      this.inMemoryNotifications = this.inMemoryNotifications.slice(0, 30);
     }
     return item;
   }
 
   markAllAsRead() {
-    this.notifications = this.notifications.map((n) => ({
+    this.inMemoryNotifications = this.inMemoryNotifications.map((n) => ({
       ...n,
       isRead: true,
     }));
   }
 
   clearAll() {
-    this.notifications = [];
+    this.inMemoryNotifications = [];
   }
 }
