@@ -267,6 +267,7 @@ export class AdminService {
     });
   }
 
+
   async publishGuideToBlog(id: string, body: any) {
     const itineraryId = BigInt(id);
     const itinerary = await this.prisma.itinerary.findUnique({
@@ -318,7 +319,6 @@ export class AdminService {
 
     return post;
   }
-
   // 1b. Explore Posts / Blog Management
   async getExplorePosts() {
     return this.prisma.explorePost.findMany({

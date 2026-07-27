@@ -182,8 +182,6 @@ model ItinerarySavedPlace {
   todoItems   Json     @default("[]")
   startTime   String?
   endTime     String?
-  isVisited   Boolean? @default(false) @map("is_visited")
-  attachments Json     @default("[]")
 
   itinerary Itinerary         @relation(fields: [itineraryId], references: [id])
   place     Place?            @relation(fields: [placeId], references: [id])
@@ -202,8 +200,6 @@ model ItineraryDetail {
   todoItems   Json     @default("[]")
   reactions   Json     @default("[]")
   isCollapsed Boolean  @default(false)
-  isVisited   Boolean? @default(false) @map("is_visited")
-  attachments Json     @default("[]")
   startTime   String?
   endTime     String?
 

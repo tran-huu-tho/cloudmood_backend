@@ -15,7 +15,7 @@ import { AuthGuard } from '@nestjs/passport';
 
 @Controller('itineraries')
 export class ItinerariesController {
-  constructor(private readonly itinerariesService: ItinerariesService) {}
+  constructor(private readonly itinerariesService: ItinerariesService) { }
 
   @Get('accept-invite')
   async acceptInvite(@Query('token') token: string, @Request() req) {

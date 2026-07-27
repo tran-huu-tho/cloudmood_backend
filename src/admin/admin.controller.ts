@@ -60,7 +60,6 @@ export class AdminController {
   async publishGuideToBlog(@Param('id') id: string, @Body() body: any) {
     return this.adminService.publishGuideToBlog(id, body);
   }
-
   // 1b. Explore Posts / Blog Management
   @Get('explore-posts')
   async getExplorePosts() {

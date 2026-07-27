@@ -506,10 +506,12 @@ export class ItinerariesService implements OnModuleInit {
 
   async deleteDetail(id: number, updatedByUserId?: string) {
     const detail = await this.prisma.itineraryDetail.findUnique({ where: { id: BigInt(id) } });
-    const res = await this.prisma.itineraryDetail.delete({ where: { id: BigInt(id) } });
-    if (detail) {
-      this.itinerariesGateway.broadcastItineraryUpdate(detail.itineraryId.toString(), updatedByUserId, 'DELETE_DETAIL');
+    if (!detail) {
+      console.warn(`deleteDetail skipped: record #${id} not found (already deleted).`);
+      return null;
     }
+    const res = await this.prisma.itineraryDetail.delete({ where: { id: BigInt(id) } });
+    this.itinerariesGateway.broadcastItineraryUpdate(detail.itineraryId.toString(), updatedByUserId, 'DELETE_DETAIL');
     return res;
   }
 
@@ -567,12 +569,14 @@ export class ItinerariesService implements OnModuleInit {
 
   async deleteSavedPlace(id: number, updatedByUserId?: string) {
     const item = await this.prisma.itinerarySavedPlace.findUnique({ where: { id: BigInt(id) } });
+    if (!item) {
+      console.warn(`deleteSavedPlace skipped: record #${id} not found (already deleted).`);
+      return null;
+    }
     const res = await this.prisma.itinerarySavedPlace.delete({
       where: { id: BigInt(id) },
     });
-    if (item) {
-      this.itinerariesGateway.broadcastItineraryUpdate(item.itineraryId.toString(), updatedByUserId, 'DELETE_SAVED_PLACE');
-    }
+    this.itinerariesGateway.broadcastItineraryUpdate(item.itineraryId.toString(), updatedByUserId, 'DELETE_SAVED_PLACE');
     return res;
   }
 
@@ -1072,8 +1076,6 @@ export class ItinerariesService implements OnModuleInit {
           todoItems: d.todoItems || [],
           reactions: d.reactions || [],
           isCollapsed: d.isCollapsed,
-          isVisited: (d as any).isVisited ?? (d as any).is_visited ?? false,
-          attachments: d.attachments || [],
           startTime: d.startTime,
           endTime: d.endTime,
         })),
@@ -1092,8 +1094,6 @@ export class ItinerariesService implements OnModuleInit {
           isCollapsed: sp.isCollapsed,
           sortOrder: sp.sortOrder,
           todoItems: sp.todoItems || [],
-          isVisited: (sp as any).isVisited ?? (sp as any).is_visited ?? false,
-          attachments: sp.attachments || [],
           startTime: sp.startTime,
           endTime: sp.endTime,
         })),

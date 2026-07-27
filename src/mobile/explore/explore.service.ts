@@ -245,6 +245,15 @@ export class ExploreService {
   }
 
   async publishItinerary(itineraryId: number, data: any, userId: number) {
+    const itin = await this.prisma.itinerary.findUnique({
+      where: { id: BigInt(itineraryId) },
+    });
+
+    const title = data?.title || itin?.title || 'Bài hướng dẫn';
+    const description = data?.description || itin?.companion || null;
+    const destination = data?.destination || itin?.destination || null;
+    const coverImage = data?.coverImage || itin?.coverImage || null;
+
     let post = await this.prisma.explorePost.findFirst({
       where: { originalItineraryId: BigInt(itineraryId) },
     });
@@ -256,13 +265,13 @@ export class ExploreService {
       post = await this.prisma.explorePost.update({
         where: { id: post.id },
         data: {
-          title: data.title,
-          description: data.description || null,
-          destination: data.destination || null,
-          coverImage: data.coverImage || null,
+          title,
+          description,
+          destination,
+          coverImage,
           status: 'PUBLISHED',
           items: {
-            create: (data.items || []).map((item: any, index: number) => ({
+            create: (data?.items || []).map((item: any, index: number) => ({
               itemType: item.itemType,
               sortOrder: item.sortOrder ?? index,
               content: item.content || null,
@@ -274,16 +283,16 @@ export class ExploreService {
     } else {
       post = await this.prisma.explorePost.create({
         data: {
-          title: data.title,
-          description: data.description || null,
-          destination: data.destination || null,
-          coverImage: data.coverImage || null,
-          postType: data.postType || 'USER_GUIDE',
+          title,
+          description,
+          destination,
+          coverImage,
+          postType: data?.postType || 'USER_GUIDE',
           status: 'PUBLISHED',
           authorId: BigInt(userId),
           originalItineraryId: BigInt(itineraryId),
           items: {
-            create: (data.items || []).map((item: any, index: number) => ({
+            create: (data?.items || []).map((item: any, index: number) => ({
               itemType: item.itemType,
               sortOrder: item.sortOrder ?? index,
               content: item.content || null,
