@@ -441,21 +441,31 @@ export class ItinerariesService implements OnModuleInit {
       const postIds = matchingPosts.map((p) => p.id);
 
       if (postIds.length > 0) {
-        await this.prisma.explorePostItem.deleteMany({
-          where: { postId: { in: postIds } },
-        });
-        await this.prisma.explorePostLike.deleteMany({
-          where: { postId: { in: postIds } },
-        });
+        await Promise.all([
+          this.prisma.explorePostItem.deleteMany({ where: { postId: { in: postIds } } }),
+          this.prisma.explorePostLike.deleteMany({ where: { postId: { in: postIds } } }),
+        ]);
         await this.prisma.explorePost.deleteMany({
           where: { id: { in: postIds } },
         });
       }
     }
 
-    await this.prisma.itineraryDetail.deleteMany({ where: { itineraryId } });
-    await this.prisma.itinerarySavedPlace.deleteMany({ where: { itineraryId } });
-    await this.prisma.itinerarySection.deleteMany({ where: { itineraryId } });
+    // Execute all child cleanups concurrently in parallel for maximum speed!
+    await Promise.all([
+      this.prisma.explorePost.updateMany({
+        where: { originalItineraryId: itineraryId },
+        data: { originalItineraryId: null },
+      }),
+      this.prisma.itineraryMember.deleteMany({ where: { itineraryId } }),
+      this.prisma.itineraryInvite.deleteMany({ where: { itineraryId } }),
+      this.prisma.itineraryExpense.deleteMany({ where: { itineraryId } }),
+      this.prisma.itinerarySettlement.deleteMany({ where: { itineraryId } }),
+      this.prisma.itineraryDetail.deleteMany({ where: { itineraryId } }),
+      this.prisma.itinerarySavedPlace.deleteMany({ where: { itineraryId } }),
+      this.prisma.itinerarySection.deleteMany({ where: { itineraryId } }),
+    ]);
+
     try {
       return await this.prisma.itinerary.delete({ where: { id: itineraryId } });
     } catch (err: any) {
@@ -497,6 +507,8 @@ export class ItinerariesService implements OnModuleInit {
         day: data.day,
         sortOrder: data.sortOrder,
         noteText: data.noteText,
+        startTime: data.startTime || null,
+        endTime: data.endTime || null,
       },
       include: { place: { include: { category: true, photos: true } } },
     });

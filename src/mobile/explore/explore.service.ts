@@ -10,7 +10,6 @@ export class ExploreService {
       status: 'PUBLISHED',
     };
     if (destination) {
-      // Clean up the destination string (e.g. split comma and take the first part like "Cần Thơ, Việt Nam" -> "Cần Thơ")
       const searchKeyword = destination.split(',')[0].trim();
       whereClause.OR = [
         { title: { contains: searchKeyword, mode: 'insensitive' } },
@@ -18,7 +17,7 @@ export class ExploreService {
       ];
     }
 
-    return this.prisma.explorePost.findMany({
+    let posts = await this.prisma.explorePost.findMany({
       where: whereClause,
       include: {
         author: {
@@ -37,6 +36,31 @@ export class ExploreService {
         createdAt: 'desc',
       },
     });
+
+    // Fallback: If no posts for this specific destination, return all published explore posts!
+    if (posts.length === 0 && destination) {
+      posts = await this.prisma.explorePost.findMany({
+        where: { status: 'PUBLISHED' },
+        include: {
+          author: {
+            select: {
+              id: true,
+              email: true,
+              fullName: true,
+              avatar: true,
+            },
+          },
+          likes: {
+            select: { userId: true },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+    }
+
+    return posts;
   }
 
   async findOne(id: number) {

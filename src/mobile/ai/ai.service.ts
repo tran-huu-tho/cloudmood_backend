@@ -405,6 +405,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     sessionId: bigint | undefined,
     destination: string,
     message: string,
+    tripConfig?: any,
   ) {
     let currentSessionId = sessionId;
 
@@ -472,7 +473,23 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     const placeContext = await this.getPlaceContext(destination);
     const destinationContext = placeContext || await this.getDestinationContext(destination);
 
-    const systemInstruction = `Bạn là trợ lý du lịch AI thông minh của ứng dụng CloudMood. Nhiệm vụ của bạn là hỗ trợ người dùng về chuyến đi tới: "${destination}". Hãy trả lời ngắn gọn, chính xác, thân thiện bằng tiếng Việt. Sử dụng Markdown để format câu trả lời cho dễ đọc (bold, danh sách, tiêu đề con).${destinationContext}`;
+    let configInstruction = '';
+    if (tripConfig) {
+      const parts: string[] = [];
+      if (tripConfig.days) parts.push(`- Thời lượng chuyến đi: ${tripConfig.days} ngày (Giới hạn tối đa 7 ngày).`);
+      if (tripConfig.companions) parts.push(`- Thành viên đi cùng: ${tripConfig.companions}.`);
+      if (tripConfig.categories && Array.isArray(tripConfig.categories) && tripConfig.categories.length > 0) {
+        parts.push(`- Thể loại du lịch yêu thích: ${tripConfig.categories.join(', ')}.`);
+      }
+      if (tripConfig.pace) parts.push(`- Nhịp độ di chuyển: ${tripConfig.pace}.`);
+      if (tripConfig.budget) parts.push(`- Ngân sách: ${tripConfig.budget} ${tripConfig.currency || 'VND'}.`);
+
+      if (parts.length > 0) {
+        configInstruction = `\n\n[CẤU HÌNH CHUYẾN ĐI NGƯỜI DÙNG ĐÃ CHỌN]:\n${parts.join('\n')}\n\nLƯU Ý BẮT BUỘC:\n1. Phân chia rõ lịch trình theo từng ngày (Ngày 1, Ngày 2, ...).\n2. Căn cứ vào nhịp độ "${tripConfig.pace || 'Vừa phải'}": nếu "Thong thả" hãy gợi ý 2-3 địa điểm/ngày; nếu "Vừa phải" gợi ý 3-4 địa điểm/ngày; nếu "Dày đặc" gợi ý 5-6 địa điểm/ngày.\n3. Đơn vị tiền tệ ước tính chi phí sử dụng là: ${tripConfig.currency || 'VND'}.`;
+      }
+    }
+
+    const systemInstruction = `Bạn là trợ lý du lịch AI thông minh của ứng dụng CloudMood. Nhiệm vụ của bạn là hỗ trợ người dùng về chuyến đi tới: "${destination}". Hãy trả lời ngắn gọn, chính xác, thân thiện bằng tiếng Việt. Sử dụng Markdown để format câu trả lời cho dễ đọc (bold, danh sách, tiêu đề con).${destinationContext}${configInstruction}`;
 
     const contents = previousMessages.map((msg) => ({
       role: msg.role === 'AI' ? 'model' : 'user',
@@ -534,10 +551,11 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     sessionId: bigint | undefined,
     destination: string,
     message: string,
+    tripConfig?: any,
   ): Observable<MessageEvent> {
     const subject = new Subject<MessageEvent>();
 
-    this.handleStreamChat(userId, sessionId, destination, message, subject)
+    this.handleStreamChat(userId, sessionId, destination, message, subject, tripConfig)
       .catch((err) => {
         this.logger.error('Stream chat error', err);
         subject.next({ data: JSON.stringify({ type: 'error', content: 'Có lỗi xảy ra.' }) } as MessageEvent);
@@ -553,6 +571,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     destination: string,
     message: string,
     subject: Subject<MessageEvent>,
+    tripConfig?: any,
   ) {
     let currentSessionId = sessionId;
 
@@ -594,7 +613,23 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     const placeContext = await this.getPlaceContext(destination);
     const destinationContext = placeContext || await this.getDestinationContext(destination);
 
-    const systemInstruction = `Bạn là trợ lý du lịch AI thông minh của ứng dụng CloudMood. Nhiệm vụ của bạn là hỗ trợ người dùng về chuyến đi tới: "${destination}". Hãy trả lời ngắn gọn, chính xác, thân thiện bằng tiếng Việt. Sử dụng Markdown để format câu trả lời cho dễ đọc.${destinationContext}`;
+    let configInstruction = '';
+    if (tripConfig) {
+      const parts: string[] = [];
+      if (tripConfig.days) parts.push(`- Thời lượng chuyến đi: ${tripConfig.days} ngày (Giới hạn tối đa 7 ngày).`);
+      if (tripConfig.companions) parts.push(`- Thành viên đi cùng: ${tripConfig.companions}.`);
+      if (tripConfig.categories && Array.isArray(tripConfig.categories) && tripConfig.categories.length > 0) {
+        parts.push(`- Thể loại du lịch yêu thích: ${tripConfig.categories.join(', ')}.`);
+      }
+      if (tripConfig.pace) parts.push(`- Nhịp độ di chuyển: ${tripConfig.pace}.`);
+      if (tripConfig.budget) parts.push(`- Ngân sách: ${tripConfig.budget} ${tripConfig.currency || 'VND'}.`);
+
+      if (parts.length > 0) {
+        configInstruction = `\n\n[CẤU HÌNH CHUYẾN ĐI NGƯỜI DÙNG ĐÃ CHỌN]:\n${parts.join('\n')}\n\nLƯU Ý BẮT BUỘC:\n1. Phân chia rõ lịch trình theo từng ngày (Ngày 1, Ngày 2, ...).\n2. Căn cứ vào nhịp độ "${tripConfig.pace || 'Vừa phải'}": nếu "Thong thả" hãy gợi ý 2-3 địa điểm/ngày; nếu "Vừa phải" gợi ý 3-4 địa điểm/ngày; nếu "Dày đặc" gợi ý 5-6 địa điểm/ngày.\n3. Đơn vị tiền tệ ước tính chi phí sử dụng là: ${tripConfig.currency || 'VND'}.`;
+      }
+    }
+
+    const systemInstruction = `Bạn là trợ lý du lịch AI thông minh của ứng dụng CloudMood. Nhiệm vụ của bạn là hỗ trợ người dùng về chuyến đi tới: "${destination}". Hãy trả lời ngắn gọn, chính xác, thân thiện bằng tiếng Việt. Sử dụng Markdown để format câu trả lời cho dễ đọc.${destinationContext}${configInstruction}`;
 
     const contents = previousMessages.map((msg) => ({
       role: msg.role === 'AI' ? 'model' : 'user',
@@ -799,4 +834,456 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       this.pythonProcess.kill();
     }
   }
+
+  // ============================================
+  // HYBRID RAG + GEMINI AI AGENT
+  // Generate full itinerary from DB context + AI reasoning
+  // ============================================
+
+  async generateItinerary(dto: {
+    destination: string;
+    days: number;
+    pace: string;
+    companion: string;
+    budget: string;
+    categories: string[];
+    startDate: string; // ISO date string
+    customRequest?: string;
+  }): Promise<{ days: Array<{ dayNumber: number; dayTitle: string; places: Array<{ placeId: number; note: string }> }> }> {
+    const { destination, days, pace, companion, budget, categories, startDate, customRequest } = dto;
+
+    // ─── STEP 1: RAG FETCH — Lấy địa điểm thực từ Database ───────────────────
+    const rawPlaces = await this.prisma.place.findMany({
+      where: {
+        isApproved: true,
+        address: { contains: destination, mode: 'insensitive' },
+      },
+      include: {
+        category: true,
+        reviews: {
+          take: 2,
+          orderBy: { rating: 'desc' },
+        },
+      },
+      orderBy: [
+        { userRatingCount: { sort: 'desc', nulls: 'last' } },
+        { rating: { sort: 'desc', nulls: 'last' } },
+      ],
+      take: 80,
+    });
+
+    // rawPlaces already has full include type — alias to working variable
+    let candidatePlaces = rawPlaces;
+
+
+    if (rawPlaces.length === 0) {
+      // Fallback: tìm theo tên địa điểm
+      const fallbackPlaces = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          name: { contains: destination, mode: 'insensitive' },
+        },
+        include: {
+          category: true,
+          reviews: { take: 2, orderBy: { rating: 'desc' } },
+        },
+        orderBy: [
+          { userRatingCount: { sort: 'desc', nulls: 'last' } },
+          { rating: { sort: 'desc', nulls: 'last' } },
+        ],
+        take: 80,
+      });
+      candidatePlaces = fallbackPlaces;
+    }
+
+    if (candidatePlaces.length === 0) {
+      throw new Error(`Không tìm thấy địa điểm nào tại "${destination}" trong hệ thống. Vui lòng chọn điểm đến khác.`);
+    }
+
+    // ─── FILTER: Loại bỏ địa điểm đã đóng cửa ────────────────────────────────
+    // Hai format được dùng:
+    //   1. Google weekday_text: { weekday_text: ["Monday: Closed", "Tuesday: 08:00–22:00", ...] }
+    //   2. Internal map: { monday: ["08:00", "22:00"], tuesday: null, ... }
+    const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+    const isPlaceClosed = (p: (typeof candidatePlaces)[number]): boolean => {
+      if (!p.openingHours) return false;
+      try {
+        const h = typeof p.openingHours === 'string'
+          ? JSON.parse(p.openingHours as string)
+          : p.openingHours as Record<string, unknown>;
+
+        if (!h || typeof h !== 'object') return false;
+
+        // Format 1: weekday_text array — nếu tất cả đều "Closed" → đóng cửa
+        if (Array.isArray((h as Record<string, unknown>).weekday_text)) {
+          const texts = (h as Record<string, unknown[]>).weekday_text as string[];
+          const allClosed = texts.every(t =>
+            typeof t === 'string' && t.toLowerCase().includes('closed')
+          );
+          return allClosed && texts.length > 0;
+        }
+
+        // Format 2: map { monday: [...], tuesday: null, ... }
+        // Nếu map có chứa ít nhất 1 ngày key nhưng tất cả giá trị đều null/empty → đóng cửa
+        const hasDayKeys = dayKeys.some(d => Object.prototype.hasOwnProperty.call(h, d));
+        if (hasDayKeys) {
+          const allNull = dayKeys.every(d => {
+            const val = (h as Record<string, unknown>)[d];
+            if (val == null) return true;
+            if (Array.isArray(val) && val.length === 0) return true;
+            if (typeof val === 'string') {
+              const lower = val.toLowerCase();
+              return lower.includes('closed') || lower.includes('đóng cửa');
+            }
+            return false;
+          });
+          return allNull;
+        }
+      } catch { /* ignore */ }
+      return false;
+    };
+
+    const openPlaces = candidatePlaces.filter(p => !isPlaceClosed(p));
+    // Chỉ áp dụng filter nếu vẫn còn đủ địa điểm (ít nhất 2 địa điểm/ngày)
+    if (openPlaces.length >= days * 2) {
+      candidatePlaces = openPlaces;
+    }
+
+
+    // Filter by categories if specified
+    if (categories && categories.length > 0 && !categories.includes('Tất cả')) {
+      const filtered = candidatePlaces.filter(p => {
+        const catName = (p.category?.name || '').toLowerCase();
+        return categories.some(c => {
+          const cl = c.toLowerCase().split('&')[0].trim();
+          return catName.includes(cl) || cl.includes(catName);
+        });
+      });
+      if (filtered.length >= days * 2) {
+        candidatePlaces = filtered;
+      }
+    }
+
+    // ─── STEP 1b: GEOGRAPHIC CLUSTERING ─────────────────────────────────────────
+    // Loại outlier địa lý: tính centroid từ top-20 địa điểm nổi bật nhất,
+    // sau đó chỉ giữ các địa điểm trong bán kính hợp lý.
+    const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    // Lấy centroid từ top-20 địa điểm có toạ độ và rating cao nhất
+    const geoPlaces = candidatePlaces.filter(p => p.latitude && p.longitude);
+    if (geoPlaces.length >= days * 2) {
+      // Score = rating * log(userRatingCount + 1) — ưu tiên nơi vừa nổi vừa nhiều review
+      const scored = geoPlaces
+        .map(p => ({
+          p,
+          score: (p.rating ?? 3.5) * Math.log((p.userRatingCount ?? 1) + 1),
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      const top20 = scored.slice(0, 20).map(s => s.p);
+      const centLat = top20.reduce((sum, p) => sum + p.latitude, 0) / top20.length;
+      const centLng = top20.reduce((sum, p) => sum + p.longitude, 0) / top20.length;
+
+      // Tính khoảng cách mỗi địa điểm đến centroid
+      const withDist = candidatePlaces
+        .filter(p => p.latitude && p.longitude)
+        .map(p => ({
+          p,
+          distKm: haversineKm(centLat, centLng, p.latitude, p.longitude),
+          score: (p.rating ?? 3.5) * Math.log((p.userRatingCount ?? 1) + 1),
+        }));
+
+      // Chọn bán kính phù hợp: ít nhất đủ days*4 địa điểm nhưng không quá 25km
+      const RADII = [5, 8, 12, 16, 20, 25];
+      let chosenRadius = 25;
+      for (const r of RADII) {
+        const inRadius = withDist.filter(x => x.distKm <= r);
+        if (inRadius.length >= days * 4) { chosenRadius = r; break; }
+      }
+
+      // Sắp xếp: gần centroid + rating cao lên trước; lấy tối đa 60
+      const filtered = withDist
+        .filter(x => x.distKm <= chosenRadius)
+        .sort((a, b) => {
+          // Normalize: điểm gần (dist nhỏ) được thưởng, rating cao được thưởng
+          const distScore = -a.distKm * 0.3 + a.score;
+          const distScoreB = -b.distKm * 0.3 + b.score;
+          return distScoreB - distScore;
+        })
+        .slice(0, 60)
+        .map(x => x.p);
+
+      if (filtered.length >= days * 2) {
+        candidatePlaces = filtered;
+        this.logger.log(`Geo-cluster: radius=${chosenRadius}km, centroid=(${centLat.toFixed(4)},${centLng.toFixed(4)}), kept ${filtered.length} places`);
+      }
+    }
+
+    // ─── STEP 2: BUILD CONTEXT & PROMPT FOR GEMINI ────────────────────────────
+
+    const startDateObj = new Date(startDate);
+    const weekdayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+
+    // Build day-by-date mapping for opening hours context
+    const dayDateList: string[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(startDateObj);
+      d.setDate(d.getDate() + i);
+      dayDateList.push(`Ngày ${i + 1}: ${weekdayNames[d.getDay()]} (${d.toLocaleDateString('vi-VN')})`);
+    }
+
+    // Serialize candidate places with clear per-day availability for Gemini
+    const dayKeyMap: Record<string, string> = {
+      monday: 'T2', tuesday: 'T3', wednesday: 'T4',
+      thursday: 'T5', friday: 'T6', saturday: 'T7', sunday: 'CN',
+    };
+
+    const getOpenDays = (hoursData: unknown): string => {
+      if (!hoursData) return 'Không có thông tin';
+      try {
+        const h = typeof hoursData === 'string' ? JSON.parse(hoursData) : hoursData;
+
+        // Format 1: Google weekday_text
+        if (h?.weekday_text && Array.isArray(h.weekday_text) && h.weekday_text.length === 7) {
+          const wt = h.weekday_text as string[];
+          // weekday_text[0] = Monday, [6] = Sunday
+          const dayLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+          const open: string[] = [];
+          const closed: string[] = [];
+          wt.forEach((text: string, i: number) => {
+            const t = text.toLowerCase();
+            // Extract time range from string like "Monday: 08:00 – 22:00"
+            if (t.includes('closed') || t.includes('đóng')) {
+              closed.push(dayLabels[i]);
+            } else {
+              const timeMatch = text.match(/(\d{1,2}:\d{2})\s*[–\-]\s*(\d{1,2}:\d{2})/);
+              open.push(timeMatch ? `${dayLabels[i]}(${timeMatch[1]}-${timeMatch[2]})` : dayLabels[i]);
+            }
+          });
+          if (closed.length === 7) return 'Tạm đóng cửa';
+          if (open.length === 7) return 'Mở cả tuần';
+          return `Mở: ${open.join(', ')} | Đóng: ${closed.join(', ')}`;
+        }
+
+        // Format 2: internal map { monday: ['08:00', '22:00'], tuesday: null, ... }
+        const hasDayKeys = dayKeys.some(d => Object.prototype.hasOwnProperty.call(h, d));
+        if (hasDayKeys) {
+          const open: string[] = [];
+          const closed: string[] = [];
+          dayKeys.forEach(d => {
+            const label = dayKeyMap[d];
+            const val = h[d];
+            if (!val || (Array.isArray(val) && val.length === 0)) {
+              closed.push(label);
+            } else if (Array.isArray(val) && val.length >= 2) {
+              open.push(`${label}(${val[0]}-${val[1]})`);
+            } else {
+              const s = String(val).toLowerCase();
+              if (s.includes('closed') || s.includes('đóng')) closed.push(label);
+              else open.push(`${label}(${val})`);
+            }
+          });
+          if (closed.length === 7) return 'Tạm đóng cửa';
+          if (open.length === 7) return 'Mở cả tuần';
+          return `Mở: ${open.join(', ')} | Đóng: ${closed.join(', ')}`;
+        }
+      } catch { /* ignore */ }
+      return 'Không có thông tin';
+    };
+
+    const placesJson = candidatePlaces.map(p => {
+      const topReview = p.reviews?.[0]?.comment?.substring(0, 100) || null;
+
+      return {
+        id: Number(p.id),
+        name: p.name,
+        category: p.category?.name || 'Khác',
+        address: p.address || '',
+        rating: p.rating ? Number(p.rating) : null,
+        priceLevel: p.priceLevel || null,
+        description: p.description ? p.description.substring(0, 150) : null,
+        openDays: getOpenDays(p.openingHours),
+        lat: p.latitude ? Number(p.latitude) : null,
+        lng: p.longitude ? Number(p.longitude) : null,
+        topReview,
+      };
+    });
+
+
+    const paceLabel = pace.includes('Thong thả') ? '2-3 địa điểm mỗi ngày (thư thái, nghỉ dưỡng)'
+      : pace.includes('Dày đặc') ? '5-6 địa điểm mỗi ngày (khám phá tối đa)'
+        : '3-4 địa điểm mỗi ngày (cân bằng trải nghiệm và nghỉ ngơi)';
+
+    const systemInstruction = `Bạn là chuyên gia lập lịch trình du lịch hàng đầu Việt Nam với 20 năm kinh nghiệm.
+Nhiệm vụ của bạn: Phân tích yêu cầu chuyến đi, tuyển chọn địa điểm phù hợp từ danh sách được cung cấp, và tạo ra lịch trình ${days} ngày hoàn hảo.
+
+QUY TẮC QUAN TRỌNG (PHẢI TUÂN THỦ NGHIÊM NGẶT):
+1. Chỉ được dùng các "id" địa điểm có trong danh sách JSON bên dưới — KHÔNG được bịa hoặc tự tạo id mới.
+2. Mỗi địa điểm chỉ xuất hiện đúng 1 lần trong toàn bộ lịch trình.
+3. BẮT BUỘC KIỂM TRA NGÀY MỞ CỬA: Mỗi địa điểm có trường "openDays" cho biết ngày nào mở (T2=Thứ Hai, T3=Thứ Ba, T4=Thứ Tư, T5=Thứ Năm, T6=Thứ Sáu, T7=Thứ Bảy, CN=Chủ Nhật). Ví dụ "Mở: T2(08:00-22:00) | Đóng: T3, T4, T5, T6, T7, CN" nghĩa là địa điểm CHỈ mở Thứ Hai. Bạn TUYỆT ĐỐI KHÔNG được xếp địa điểm này vào ngày T3, T4, T5, T6, T7 hay CN. Lịch cụ thể từng ngày trong tuần đã có trong "Lịch từng ngày" — hãy đối chiếu trước khi xếp.
+4. BẮT BUỘC VỀ ĐỊA LÝ: Các địa điểm trong CÙNG MỘT NGÀY phải nằm trong cùng một khu vực, khoảng cách giữa chúng không vượt quá 6-8km (dùng lat/lng để ước tính). Không được xếp địa điểm ở đầu thành phố và cuối thành phố vào cùng một ngày. Hãy tưởng tượng người đi bộ hoặc đi xe máy — họ nên đi theo một hành trình mạch lạc, không zigzag.
+5. ƯU TIÊN ĐỊA ĐIỂM HOT: Trước tiên chọn các địa điểm có rating cao (>= 4.0) và nhiều review (userRatingCount lớn). Đây là những nơi được du khách yêu thích nhất. Chỉ dùng địa điểm ít nổi hơn khi không đủ địa điểm hot trong khu vực đó.
+6. Đảm bảo đúng số lượng địa điểm theo nhịp độ được yêu cầu.
+7. Trả về JSON hợp lệ, không thêm markdown, không thêm giải thích, không thêm text trước hoặc sau JSON.
+
+FORMAT JSON TRẢ VỀ (chính xác theo cấu trúc này):
+{
+  "days": [
+    {
+      "dayNumber": 1,
+      "dayTitle": "Tên chủ đề ngày 1 sáng tạo, gợi cảm xúc",
+      "places": [
+        {
+          "placeId": 123,
+          "note": "Câu ghi chú chi tiết, sinh động, cá nhân hóa cho địa điểm này (1-2 câu, không dùng emoji)"
+        }
+      ]
+    }
+  ]
+}`;
+
+    const userPrompt = `THÔNG TIN CHUYẾN ĐI:
+- Điểm đến: ${destination}
+- Số ngày: ${days} ngày
+- Lịch từng ngày: ${dayDateList.join(', ')}
+- Nhịp độ: ${paceLabel}
+- Đi cùng: ${companion || 'Không xác định'}
+- Ngân sách: ${budget || 'Vừa phải'}
+${customRequest ? `- Yêu cầu riêng: "${customRequest}"` : ''}
+
+DANH SÁCH ĐỊA ĐIỂM THỰC TẾ TỪ CLOUDMOOD DATABASE:
+${JSON.stringify(placesJson, null, 2)}
+
+Hãy tạo lịch trình ${days} ngày với nhịp độ ${paceLabel}. Viết tiêu đề ngày sáng tạo và ghi chú địa điểm chi tiết, tự nhiên, thể hiện đúng văn hóa và đặc trưng của từng nơi. Trả về JSON thuần túy.`;
+
+    const payload = {
+      system_instruction: {
+        parts: [{ text: systemInstruction }],
+      },
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: userPrompt }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.75,
+        responseMimeType: 'application/json',
+      },
+    };
+
+    // ─── STEP 3: CALL GEMINI AI ────────────────────────────────────────────────
+    let rawText = '';
+    try {
+      const response = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', payload);
+      const data = response.data as GeminiResponseData;
+      rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } catch (error: any) {
+      this.logger.error('Gemini API error in generateItinerary', error?.message);
+      throw new Error(`Trợ lý AI gặp lỗi khi tạo lịch trình: ${error?.message || 'Không xác định'}. Vui lòng thử lại.`);
+    }
+
+    if (!rawText) {
+      throw new Error('Trợ lý AI không trả về kết quả. Vui lòng thử lại sau.');
+    }
+
+    // ─── STEP 4: PARSE & VALIDATE JSON FROM GEMINI ────────────────────────────
+    let parsed: any;
+    try {
+      // Strip possible markdown code fences
+      const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      this.logger.error('Failed to parse Gemini JSON response', rawText.substring(0, 500));
+      throw new Error('Trợ lý AI trả về dữ liệu không hợp lệ. Vui lòng thử lại.');
+    }
+
+    // Build valid ID set + hoursMap for post-validation
+    const validIdSet = new Set(candidatePlaces.map(p => Number(p.id)));
+    const usedIdSet = new Set<number>();
+    const placeHoursMap = new Map(candidatePlaces.map(p => [Number(p.id), p.openingHours]));
+
+    // weekday: JS Date.getDay() => 0=Sun,1=Mon,...,6=Sat
+    const weekdayToKeyLocal = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+    const isOpenOnWeekday = (hoursData: unknown, weekdayIdx: number): boolean => {
+      if (!hoursData) return true;
+      try {
+        const h = typeof hoursData === 'string' ? JSON.parse(hoursData as string) : hoursData as Record<string, unknown>;
+
+        // Format 1: weekday_text (0=Monday, 6=Sunday)
+        const wt = (h as Record<string, unknown>)?.weekday_text;
+        if (wt && Array.isArray(wt) && (wt as unknown[]).length === 7) {
+          const wtIdx = weekdayIdx === 0 ? 6 : weekdayIdx - 1;
+          const text = ((wt as string[])[wtIdx] || '').toLowerCase();
+          return !text.includes('closed') && !text.includes('dong');
+        }
+
+        // Format 2: internal map { monday: [...], ... }
+        const dayKey = weekdayToKeyLocal[weekdayIdx];
+        const hasDayKeysHere = dayKeys.some(d => Object.prototype.hasOwnProperty.call(h, d));
+        if (hasDayKeysHere) {
+          if (!Object.prototype.hasOwnProperty.call(h, dayKey)) return false;
+          const val = (h as Record<string, unknown>)[dayKey];
+          if (!val) return false;
+          if (Array.isArray(val)) return (val as unknown[]).length > 0;
+          const s = String(val).toLowerCase();
+          return !s.includes('closed') && !s.includes('dong');
+        }
+      } catch { /* ignore */ }
+      return true;
+    };
+
+    // Validate and sanitize (includes per-weekday opening hours check)
+    const startDateObjFinal = new Date(startDate);
+
+    const validatedDays = (parsed.days || []).map((day: any, idx: number) => {
+      const tripDate = new Date(startDateObjFinal);
+      tripDate.setDate(tripDate.getDate() + idx);
+      const weekdayIdx = tripDate.getDay();
+
+      const validatedPlaces = (day.places || [])
+        .filter((p: any) => {
+          const pid = Number(p.placeId);
+          if (!validIdSet.has(pid)) {
+            this.logger.warn('Gemini invalid placeId ' + pid + ' - skipping');
+            return false;
+          }
+          if (usedIdSet.has(pid)) {
+            this.logger.warn('Gemini duplicate placeId ' + pid + ' - skipping');
+            return false;
+          }
+          const hoursData = placeHoursMap.get(pid);
+          if (!isOpenOnWeekday(hoursData, weekdayIdx)) {
+            this.logger.warn('Gemini placed id=' + pid + ' on closed weekday ' + weekdayIdx + ' - removing');
+            return false;
+          }
+          usedIdSet.add(pid);
+          return true;
+        })
+        .map((p: any) => ({
+          placeId: Number(p.placeId),
+          note: (p.note || '').toString().trim(),
+        }));
+
+      return {
+        dayNumber: day.dayNumber || idx + 1,
+        dayTitle: (day.dayTitle || ('Ngay ' + (idx + 1))).toString().trim(),
+        places: validatedPlaces,
+      };
+    });
+
+    this.logger.log('generateItinerary: ' + validatedDays.length + ' days, ' + usedIdSet.size + ' places for "' + destination + '"');
+
+    return { days: validatedDays };
+  }
 }
+

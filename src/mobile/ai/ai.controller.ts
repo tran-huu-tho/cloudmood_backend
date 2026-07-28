@@ -20,15 +20,36 @@ class AskPlaceDto {
   message: string;
 }
 
+export class TripConfigDto {
+  days?: number;
+  companions?: string;
+  categories?: string[];
+  pace?: string;
+  budget?: string;
+  currency?: string;
+}
+
+export class GenerateItineraryDto {
+  destination: string;
+  days: number;
+  pace: string;
+  companion: string;
+  budget: string;
+  categories: string[];
+  startDate: string;
+  customRequest?: string;
+}
+
 class ChatDto {
   sessionId?: string;
   destination: string;
   message: string;
+  tripConfig?: TripConfigDto;
 }
 
 @Controller('mobile/ai')
 export class MobileAiController {
-  constructor(private readonly aiService: MobileAiService) {}
+  constructor(private readonly aiService: MobileAiService) { }
 
   @Post('ask-place')
   async askPlace(@Body() dto: AskPlaceDto) {
@@ -89,6 +110,7 @@ export class MobileAiController {
       sessionId,
       dto.destination,
       dto.message,
+      dto.tripConfig,
     );
 
     return {
@@ -123,6 +145,7 @@ export class MobileAiController {
       sessionId,
       dto.destination,
       dto.message,
+      dto.tripConfig,
     );
 
     observable.subscribe({
@@ -142,5 +165,15 @@ export class MobileAiController {
     req.on('close', () => {
       // Client disconnected
     });
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // HYBRID RAG + GEMINI AI AGENT — Generate full itinerary
+  // ────────────────────────────────────────────────────────────────────────────
+  @UseGuards(AuthGuard('jwt'))
+  @Post('generate-itinerary')
+  async generateItinerary(@Body() dto: GenerateItineraryDto) {
+    const result = await this.aiService.generateItinerary(dto);
+    return { success: true, data: result };
   }
 }
