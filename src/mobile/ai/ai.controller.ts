@@ -4,11 +4,16 @@ import {
   Body,
   Get,
   Param,
+  Query,
   UseGuards,
   Request,
+  Res,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { MobileAiService } from './ai.service';
+import * as express from 'express';
 
 class AskPlaceDto {
   placeName: string;
@@ -30,6 +35,19 @@ export class MobileAiController {
     const { placeName, message } = dto;
     const reply = await this.aiService.askPlaceQuestion(placeName, message);
     return { success: true, reply };
+  }
+
+  // Suggestions API: trả về câu hỏi gợi ý dựa trên dữ liệu thực
+  @Get('suggestions')
+  async getSuggestions(
+    @Query('placeName') placeName: string,
+    @Query('type') type: string = 'place',
+  ) {
+    const suggestions = await this.aiService.getSuggestions(
+      placeName || '',
+      type === 'trip' ? 'trip' : 'place',
+    );
+    return { success: true, data: suggestions };
   }
 
   @UseGuards(AuthGuard('jwt'))
@@ -80,5 +98,49 @@ export class MobileAiController {
         reply: result.reply,
       },
     };
+  }
+
+  // Streaming Chat — POST endpoint that manually writes SSE
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(HttpStatus.OK)
+  @Post('chat/stream')
+  async streamChat(
+    @Request() req: any,
+    @Body() dto: ChatDto,
+    @Res() res: express.Response,
+  ) {
+    const userId = BigInt(req.user.id);
+    const sessionId = dto.sessionId ? BigInt(dto.sessionId) : undefined;
+
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const observable = this.aiService.streamChat(
+      userId,
+      sessionId,
+      dto.destination,
+      dto.message,
+    );
+
+    observable.subscribe({
+      next: (event) => {
+        res.write(`data: ${event.data}\n\n`);
+      },
+      complete: () => {
+        res.end();
+      },
+      error: (err) => {
+        res.write(`data: ${JSON.stringify({ type: 'error', content: 'Có lỗi xảy ra.' })}\n\n`);
+        res.end();
+      },
+    });
+
+    // Handle client disconnect
+    req.on('close', () => {
+      // Client disconnected
+    });
   }
 }

@@ -31,13 +31,11 @@ export class AiService {
       : 'generateContent';
 
     const modelsToTry = [
-      'models/gemini-3.6-flash',
       'models/gemini-3.5-flash',
+      'models/gemini-3.1-flash-lite',
+      'models/gemini-flash-latest',
       'models/gemini-3.5-flash-lite',
-      'models/gemini-2.5-flash',
-      'models/gemini-2.5-flash-lite',
-      'models/gemini-2.0-flash',
-      'models/gemini-1.5-flash',
+      'models/gemini-3.6-flash',
     ];
 
     let lastError: any;
