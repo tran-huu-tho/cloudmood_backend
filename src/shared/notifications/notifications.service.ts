@@ -12,17 +12,7 @@ export interface NotificationItem {
 
 @Injectable()
 export class NotificationsService {
-  private inMemoryNotifications: NotificationItem[] = [
-    {
-      id: 9991,
-      type: 'warning',
-      title: 'Đánh giá mới cần kiểm duyệt',
-      message:
-        'Có 1 nhận xét 1 sao mới tại "Quán Ăn Cây Trứng Cá" cần admin xử lý.',
-      createdAt: new Date(Date.now() - 15 * 60000),
-      isRead: false,
-    },
-  ];
+  private inMemoryNotifications: NotificationItem[] = [];
   private nextId = 1000;
 
   constructor(private readonly prisma: PrismaService) {}

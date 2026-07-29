@@ -189,7 +189,7 @@ export class AuthService {
         fullName: data.fullName,
         email: normalizedEmail,
         password: hashedPassword,
-        avatar: data.avatarUrl || '/default-avatar.jpg',
+        avatar: data.avatarUrl || '/default-avatar.svg',
         createdAt: new Date(),
         role: false,
       },
@@ -348,7 +348,7 @@ export class AuthService {
         fullName: data.fullName,
         email: data.email,
         password: hashedPassword,
-        avatar: data.avatarUrl || '/default-avatar.jpg',
+        avatar: data.avatarUrl || '/default-avatar.svg',
         createdAt: new Date(),
         role: false,
       },
@@ -565,7 +565,7 @@ export class AuthService {
           fullName: fullName || 'Người dùng Google/Facebook',
           email: email,
           password: randomPassword,
-          avatar: avatarUrl || '/default-avatar.jpg',
+          avatar: avatarUrl || '/default-avatar.svg',
           createdAt: new Date(),
           role: false,
         },
@@ -576,7 +576,7 @@ export class AuthService {
         where: { email },
         data: {
           fullName: user.fullName || fullName,
-          avatar: user.avatar || avatarUrl || '/default-avatar.jpg',
+          avatar: user.avatar || avatarUrl || '/default-avatar.svg',
         },
       });
     }

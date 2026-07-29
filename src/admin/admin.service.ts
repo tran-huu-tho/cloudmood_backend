@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class AdminService {
@@ -101,7 +103,7 @@ export class AdminService {
       },
     });
 
-    return itineraries.map((it) => ({
+    const result = itineraries.map((it) => ({
       ...it,
       id: it.id.toString(),
       userId: it.userId.toString(),
@@ -113,75 +115,84 @@ export class AdminService {
         currencyCode: e.currencyCode,
       })),
     }));
+
+    return this.serializeBigInt(result);
+  }
+
+  private serializeBigInt(obj: any): any {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'bigint') return Number(obj);
+    if (obj instanceof Date) return obj.toISOString();
+    if (Array.isArray(obj)) return obj.map((item) => this.serializeBigInt(item));
+    if (typeof obj === 'object') {
+      const res: any = {};
+      for (const key of Object.keys(obj)) {
+        res[key] = this.serializeBigInt(obj[key]);
+      }
+      return res;
+    }
+    return obj;
   }
 
   async getItineraryDetail(id: string) {
-    const itineraryId = BigInt(id);
-    const itinerary = await this.prisma.itinerary.findUnique({
-      where: { id: itineraryId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            avatar: true,
-          },
-        },
-        sections: {
-          orderBy: { sortOrder: 'asc' },
-        },
-        savedPlaces: {
+    try {
+      const itineraryId = BigInt(id);
+      let itinerary: any = null;
+      try {
+        itinerary = await this.prisma.itinerary.findUnique({
+          where: { id: itineraryId },
           include: {
-            place: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                avatar: true,
+              },
+            },
+            sections: {
+              orderBy: { sortOrder: 'asc' },
+            },
+            savedPlaces: {
               include: {
-                category: true,
-                photos: true,
-                reviews: {
-                  include: { user: true },
-                  orderBy: { id: 'desc' },
-                  take: 10,
+                place: {
+                  include: {
+                    category: true,
+                    photos: true,
+                  },
                 },
+                expense: true,
               },
+              orderBy: { sortOrder: 'asc' },
             },
-            expense: true,
-          },
-          orderBy: { sortOrder: 'asc' },
-        },
-        details: {
-          include: {
-            place: {
+            details: {
               include: {
-                category: true,
-                photos: true,
-                reviews: {
-                  include: { user: true },
-                  orderBy: { id: 'desc' },
-                  take: 10,
+                place: {
+                  include: {
+                    category: true,
+                    photos: true,
+                  },
                 },
+                expense: true,
               },
-            },
-            expense: true,
-          },
-          orderBy: [{ day: 'asc' }, { sortOrder: 'asc' }],
-        },
-        expenses: {
-          include: {
-            settlements: true,
-            savedPlace: {
-              include: {
-                place: true,
-              },
-            },
-            detail: {
-              include: {
-                place: true,
-              },
+              orderBy: [{ day: 'asc' }, { sortOrder: 'asc' }],
             },
           },
-          orderBy: { id: 'desc' },
-        },
-        members: {
+        });
+      } catch (err: any) {
+        console.error('Error fetching core itinerary record:', err);
+        throw err;
+      }
+
+      if (!itinerary) {
+        throw new BadRequestException('Hành trình không tồn tại.');
+      }
+
+      // Query members safely
+      let members: any[] = [];
+      try {
+        members = await this.prisma.itineraryMember.findMany({
+          where: { itineraryId },
           include: {
             user: {
               select: {
@@ -192,57 +203,81 @@ export class AdminService {
               },
             },
           },
-        },
-        invites: true,
-      },
-    });
+        });
+      } catch (e) {
+        members = [];
+      }
 
-    if (!itinerary) {
-      throw new BadRequestException('Hành trình không tồn tại.');
+      // Query expenses safely
+      let expenses: any[] = [];
+      try {
+        expenses = await this.prisma.itineraryExpense.findMany({
+          where: { itineraryId },
+          include: {
+            savedPlace: { include: { place: true } },
+            detail: { include: { place: true } },
+          },
+          orderBy: { id: 'desc' },
+        });
+      } catch (e) {
+        expenses = [];
+      }
+
+      // Query settlements safely
+      let formattedSettlements: any[] = [];
+      try {
+        const expenseIds = (expenses || []).map((e) => e.id).filter(Boolean);
+        const rawSettlements = await this.prisma.itinerarySettlement.findMany({
+          where: {
+            OR: [
+              { itineraryId },
+              ...(expenseIds.length > 0 ? [{ expenseId: { in: expenseIds } }] : []),
+            ],
+          },
+          include: {
+            expense: true,
+          },
+          orderBy: { id: 'desc' },
+        });
+
+        formattedSettlements = rawSettlements.map((item) => ({
+          id: item.id.toString(),
+          itineraryId: item.itineraryId.toString(),
+          expenseId: item.expenseId ? item.expenseId.toString() : null,
+          fromUserId: item.fromUserId ? item.fromUserId.toString() : null,
+          fromName: item.fromName,
+          toUserId: item.toUserId ? item.toUserId.toString() : null,
+          toName: item.toName,
+          amount: Number(item.amount) || 0,
+          date: item.date ? (typeof item.date === 'string' ? item.date : (item.date as any)?.toISOString?.() || String(item.date)) : null,
+          createdAt: item.createdAt ? (typeof item.createdAt === 'string' ? item.createdAt : (item.createdAt as any)?.toISOString?.() || String(item.createdAt)) : null,
+          expense: item.expense
+            ? {
+                id: item.expense.id.toString(),
+                title: item.expense.title,
+                amount: Number(item.expense.amount) || 0,
+                category: item.expense.category,
+                payer: item.expense.payer,
+                share: item.expense.share,
+              }
+            : null,
+        }));
+      } catch (e) {
+        formattedSettlements = [];
+      }
+
+      const fullResult = {
+        ...itinerary,
+        members,
+        expenses,
+        settlements: formattedSettlements,
+      };
+
+      return this.serializeBigInt(fullResult);
+    } catch (error: any) {
+      console.error('Lỗi khi lấy thông tin chi tiết chuyến đi:', error);
+      throw error;
     }
-
-    // Query all settlements by itineraryId OR linked expenseIds
-    const expenseIds = itinerary.expenses.map((e) => e.id);
-    const rawSettlements = await this.prisma.itinerarySettlement.findMany({
-      where: {
-        OR: [
-          { itineraryId },
-          ...(expenseIds.length > 0 ? [{ expenseId: { in: expenseIds } }] : []),
-        ],
-      },
-      include: {
-        expense: true,
-      },
-      orderBy: { id: 'desc' },
-    });
-
-    const formattedSettlements = rawSettlements.map((item) => ({
-      id: item.id.toString(),
-      itineraryId: item.itineraryId.toString(),
-      expenseId: item.expenseId ? item.expenseId.toString() : null,
-      fromUserId: item.fromUserId ? item.fromUserId.toString() : null,
-      fromName: item.fromName,
-      toUserId: item.toUserId ? item.toUserId.toString() : null,
-      toName: item.toName,
-      amount: Number(item.amount) || 0,
-      date: item.date ? item.date.toISOString() : null,
-      createdAt: item.createdAt ? item.createdAt.toISOString() : null,
-      expense: item.expense
-        ? {
-            id: item.expense.id.toString(),
-            title: item.expense.title,
-            amount: Number(item.expense.amount) || 0,
-            category: item.expense.category,
-            payer: item.expense.payer,
-            share: item.expense.share,
-          }
-        : null,
-    }));
-
-    return {
-      ...itinerary,
-      settlements: formattedSettlements,
-    };
   }
 
   async updateItinerary(id: string, body: any) {
@@ -573,7 +608,7 @@ export class AdminService {
         fullName: data.fullName,
         email: data.email,
         password: hashedPassword,
-        avatar: data.avatar || '/default-avatar.jpg',
+        avatar: data.avatar || '/default-avatar.svg',
         role: data.role === true,
         createdAt: new Date(),
       },
@@ -768,6 +803,30 @@ export class AdminService {
       throw new BadRequestException('Địa điểm không tồn tại.');
     }
 
+    let image = data.image !== undefined ? data.image : place.image;
+    if (typeof image === 'string' && image.startsWith('data:image/')) {
+      try {
+        const matches = image.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+          const base64Data = matches[2];
+          const fileName = `thumb-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+          const webPublicUploads = path.join(process.cwd(), '../cloudmood_web/public/uploads/places');
+          if (!fs.existsSync(webPublicUploads)) {
+            fs.mkdirSync(webPublicUploads, { recursive: true });
+          }
+
+          const filePath = path.join(webPublicUploads, fileName);
+          fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+
+          image = `/uploads/places/${fileName}`;
+        }
+      } catch (err) {
+        console.error('Failed to save thumbnail image to file system:', err);
+      }
+    }
+
     return this.prisma.place.update({
       where: { id: placeId },
       data: {
@@ -788,7 +847,7 @@ export class AdminService {
           data.categoryId !== undefined
             ? BigInt(data.categoryId)
             : place.categoryId,
-        image: data.image !== undefined ? data.image : place.image,
+        image,
         rating:
           data.rating !== undefined
             ? data.rating !== null
@@ -848,21 +907,51 @@ export class AdminService {
     });
   }
 
-  // 5. Photos Management
+  // 5. Photos Management (Automatic File Saver for Base64)
   async addPlacePhoto(placeId: string, data: any) {
     if (!data.urlOriginal) {
       throw new BadRequestException('Đường dẫn ảnh gốc không được để trống.');
     }
 
-    return this.prisma.placePhoto.create({
+    let urlOriginal = data.urlOriginal;
+    let urlThumbnail = data.urlThumbnail || null;
+
+    // Handle Base64 Upload
+    if (typeof urlOriginal === 'string' && urlOriginal.startsWith('data:image/')) {
+      try {
+        const matches = urlOriginal.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+          const base64Data = matches[2];
+          const fileName = `photo-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+          const webPublicUploads = path.join(process.cwd(), '../cloudmood_web/public/uploads/photos');
+          if (!fs.existsSync(webPublicUploads)) {
+            fs.mkdirSync(webPublicUploads, { recursive: true });
+          }
+
+          const filePath = path.join(webPublicUploads, fileName);
+          fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+
+          urlOriginal = `/uploads/photos/${fileName}`;
+          urlThumbnail = null;
+        }
+      } catch (err) {
+        console.error('Failed to save base64 photo to file system:', err);
+      }
+    }
+
+    const created = await this.prisma.placePhoto.create({
       data: {
         placeId: BigInt(placeId),
-        urlOriginal: data.urlOriginal,
-        urlThumbnail: data.urlThumbnail || null,
+        urlOriginal,
+        urlThumbnail,
         caption: data.caption || null,
         source: data.source || 'LOCAL',
       },
     });
+
+    return this.serializeBigInt(created);
   }
 
   async deletePlacePhoto(photoId: string) {
@@ -872,17 +961,18 @@ export class AdminService {
       throw new BadRequestException('Ảnh không tồn tại.');
     }
 
-    return this.prisma.placePhoto.delete({ where: { id } });
+    const deleted = await this.prisma.placePhoto.delete({ where: { id } });
+    return this.serializeBigInt(deleted);
   }
 
   async addPlaceReview(placeId: string, data: any) {
-    return this.prisma.review.create({
+    const created = await this.prisma.review.create({
       data: {
         placeId: BigInt(placeId),
         rating: parseFloat(data.rating),
         comment: data.comment,
         authorName: data.authorName,
-        authorAvatar: data.authorAvatar || '/default-avatar.jpg',
+        authorAvatar: data.authorAvatar || '/default-avatar.svg',
         authorLocation: data.authorLocation || null,
         publishedDate: data.publishedDate
           ? new Date(data.publishedDate)
@@ -890,6 +980,8 @@ export class AdminService {
         source: 'LOCAL',
       },
     });
+
+    return this.serializeBigInt(created);
   }
 
   // 6. Bulk Import

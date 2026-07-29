@@ -27,6 +27,11 @@ export class ReviewsController {
     return this.reviewsService.create(req.user.id.toString(), body);
   }
 
+  @Post('public')
+  async createPublic(@Body() body: any) {
+    return this.reviewsService.createPublic(body);
+  }
+
   @Delete(':id')
   @UseGuards(AuthGuard('jwt'))
   async delete(@Param('id') id: string) {

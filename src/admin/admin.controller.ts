@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminGuard } from '../shared/guards/admin.guard';
@@ -38,7 +39,12 @@ export class AdminController {
 
   @Get('itineraries/:id')
   async getItineraryDetail(@Param('id') id: string) {
-    return this.adminService.getItineraryDetail(id);
+    try {
+      return await this.adminService.getItineraryDetail(id);
+    } catch (err: any) {
+      console.error(`[AdminController] Error getting itinerary detail for ID ${id}:`, err);
+      throw new InternalServerErrorException(err?.message || 'Lỗi khi lấy thông tin chi tiết chuyến đi.');
+    }
   }
 
   @Patch('itineraries/:id')
@@ -199,17 +205,32 @@ export class AdminController {
   // 5. Photos Management
   @Post('places/:id/photos')
   async addPlacePhoto(@Param('id') placeId: string, @Body() body: any) {
-    return this.adminService.addPlacePhoto(placeId, body);
+    try {
+      return await this.adminService.addPlacePhoto(placeId, body);
+    } catch (err: any) {
+      console.error('Error in addPlacePhoto:', err);
+      throw new InternalServerErrorException(err.message || 'Lỗi khi thêm hình ảnh.');
+    }
   }
 
   @Delete('places/photos/:photoId')
   async deletePlacePhoto(@Param('photoId') photoId: string) {
-    return this.adminService.deletePlacePhoto(photoId);
+    try {
+      return await this.adminService.deletePlacePhoto(photoId);
+    } catch (err: any) {
+      console.error('Error in deletePlacePhoto:', err);
+      throw new InternalServerErrorException(err.message || 'Lỗi khi xóa hình ảnh.');
+    }
   }
 
   @Post('places/:id/reviews')
   async addPlaceReview(@Param('id') placeId: string, @Body() body: any) {
-    return this.adminService.addPlaceReview(placeId, body);
+    try {
+      return await this.adminService.addPlaceReview(placeId, body);
+    } catch (err: any) {
+      console.error('Error in addPlaceReview:', err);
+      throw new InternalServerErrorException(err.message || 'Lỗi khi thêm đánh giá.');
+    }
   }
 
   // 6. Bulk Import

@@ -24,6 +24,25 @@ export class ReviewsService {
     });
   }
 
+  async createPublic(data: any) {
+    const created = await this.prisma.review.create({
+      data: {
+        rating: parseFloat(data.rating) || 5,
+        comment: data.comment || '',
+        placeId: BigInt(data.placeId),
+        authorName: data.authorName || 'Người dùng CloudMood',
+        authorAvatar: data.authorAvatar || null,
+        publishedDate: new Date(),
+        source: 'LOCAL',
+      },
+    });
+    return {
+      ...created,
+      id: created.id.toString(),
+      placeId: created.placeId.toString(),
+    };
+  }
+
   async delete(id: string) {
     return this.prisma.review.delete({
       where: { id: BigInt(id) },

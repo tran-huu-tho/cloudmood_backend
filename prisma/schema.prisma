@@ -160,8 +160,8 @@ model ItineraryInvite {
 model PlacePhoto {
   id           BigInt  @id @default(autoincrement())
   placeId      BigInt
-  urlOriginal  String  @db.VarChar(500)
-  urlThumbnail String? @db.VarChar(500)
+  urlOriginal  String  @db.VarChar
+  urlThumbnail String? @db.VarChar
   caption      String?
   source       String? @default("TRIPADVISOR") @db.VarChar(20)
 

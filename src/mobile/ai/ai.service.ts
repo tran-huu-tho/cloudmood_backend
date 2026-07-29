@@ -850,13 +850,24 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     startDate: string; // ISO date string
     customRequest?: string;
   }): Promise<{ days: Array<{ dayNumber: number; dayTitle: string; places: Array<{ placeId: number; note: string }> }> }> {
-    const { destination, days, pace, companion, budget, categories, startDate, customRequest } = dto;
+    let cleanDest = destination
+      .replace(/^Thành phố\s+/i, '')
+      .replace(/^Thành Phố\s+/i, '')
+      .replace(/^Tỉnh\s+/i, '')
+      .replace(/^TP\.\s*/i, '')
+      .replace(/^TP\s+/i, '')
+      .trim();
+    if (!cleanDest) cleanDest = destination;
 
     // ─── STEP 1: RAG FETCH — Lấy địa điểm thực từ Database ───────────────────
     const rawPlaces = await this.prisma.place.findMany({
       where: {
         isApproved: true,
-        address: { contains: destination, mode: 'insensitive' },
+        OR: [
+          { address: { contains: cleanDest, mode: 'insensitive' } },
+          { address: { contains: destination, mode: 'insensitive' } },
+          { name: { contains: cleanDest, mode: 'insensitive' } },
+        ],
       },
       include: {
         category: true,
@@ -872,17 +883,12 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       take: 80,
     });
 
-    // rawPlaces already has full include type — alias to working variable
     let candidatePlaces = rawPlaces;
 
-
-    if (rawPlaces.length === 0) {
-      // Fallback: tìm theo tên địa điểm
-      const fallbackPlaces = await this.prisma.place.findMany({
-        where: {
-          isApproved: true,
-          name: { contains: destination, mode: 'insensitive' },
-        },
+    if (candidatePlaces.length === 0) {
+      // Fallback: Lấy các địa điểm nổi tiếng nhất hệ thống nếu chưa có dữ liệu riêng cho thành phố này
+      candidatePlaces = await this.prisma.place.findMany({
+        where: { isApproved: true },
         include: {
           category: true,
           reviews: { take: 2, orderBy: { rating: 'desc' } },
@@ -893,11 +899,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
         ],
         take: 80,
       });
-      candidatePlaces = fallbackPlaces;
-    }
-
-    if (candidatePlaces.length === 0) {
-      throw new Error(`Không tìm thấy địa điểm nào tại "${destination}" trong hệ thống. Vui lòng chọn điểm đến khác.`);
     }
 
     // ─── FILTER: Loại bỏ địa điểm đã đóng cửa ────────────────────────────────
