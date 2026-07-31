@@ -40,6 +40,15 @@ export class GenerateItineraryDto {
   customRequest?: string;
 }
 
+export class ReplacePlaceDto {
+  destination?: string;
+  currentLat: number;
+  currentLng: number;
+  oldPlaceId: number;
+  isRainy?: boolean;
+  categoryNeeded?: string;
+}
+
 class ChatDto {
   sessionId?: string;
   destination: string;
@@ -56,6 +65,13 @@ export class MobileAiController {
     const { placeName, message } = dto;
     const reply = await this.aiService.askPlaceQuestion(placeName, message);
     return { success: true, reply };
+  }
+
+  // Endpoint kiểm tra thống kê CSDL thực tế
+  @Get('db-stats')
+  async getDbStats() {
+    const data = await this.aiService.getDbStats();
+    return { success: true, data };
   }
 
   // Suggestions API: trả về câu hỏi gợi ý dựa trên dữ liệu thực
@@ -176,4 +192,15 @@ export class MobileAiController {
     const result = await this.aiService.generateItinerary(dto);
     return { success: true, data: result };
   }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // EMERGENCY REPLACEMENT API — Real-time place replacement
+  // ────────────────────────────────────────────────────────────────────────────
+  @UseGuards(AuthGuard('jwt'))
+  @Post('replace-place')
+  async replacePlace(@Body() dto: ReplacePlaceDto) {
+    const result = await this.aiService.replacePlace(dto);
+    return { success: true, data: result.replacementPlace };
+  }
 }
+

@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PrismaService } from '../../shared/prisma/prisma.service';
+import { RuleEngineService } from './rule-engine.service';
+import { WeatherService } from '../../shared/weather/weather.service';
 import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -29,9 +31,51 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly ruleEngine: RuleEngineService,
+    private readonly weatherService: WeatherService,
   ) {
     const rawKey = this.configService.get<string>('AI_API_KEY') || '';
     this.apiKey = rawKey.split(',')[0].trim();
+  }
+
+
+  async getDbStats() {
+    const totalPlaces = await this.prisma.place.count();
+    const places = await this.prisma.place.findMany({
+      select: { id: true, name: true, address: true, category: { select: { name: true } } },
+    });
+
+    const cityCounts: Record<string, number> = {};
+    const categoryCounts: Record<string, number> = {};
+
+    for (const p of places) {
+      const cat = p.category?.name || 'Khác';
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+
+      const addr = p.address || '';
+      let city = 'Khác / Chưa rõ';
+      if (addr.includes('Cần Thơ')) city = 'Cần Thơ';
+      else if (addr.includes('HCM') || addr.includes('Hồ Chí Minh') || addr.includes('Sài Gòn') || addr.includes('Quận') || addr.includes('Thủ Đức')) city = 'TP. Hồ Chí Minh';
+      else if (addr.includes('Đà Lạt') || addr.includes('Lâm Đồng')) city = 'Đà Lạt';
+      else if (addr.includes('Vũng Tàu') || addr.includes('Bà Rịa')) city = 'Vũng Tàu';
+      else if (addr.includes('An Giang') || addr.includes('Long Xuyên')) city = 'An Giang';
+      else if (addr.includes('Hà Nội')) city = 'Hà Nội';
+      else if (addr.includes('Đà Nẵng')) city = 'Đà Nẵng';
+
+      cityCounts[city] = (cityCounts[city] || 0) + 1;
+    }
+
+    return {
+      totalPlaces,
+      cityCounts,
+      categoryCounts,
+      samplePlaces: places.slice(0, 15).map((p) => ({
+        id: Number(p.id),
+        name: p.name,
+        address: p.address,
+        category: p.category?.name,
+      })),
+    };
   }
 
   private async postWithKeyRotation(
@@ -850,6 +894,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     startDate: string; // ISO date string
     customRequest?: string;
   }): Promise<{ days: Array<{ dayNumber: number; dayTitle: string; places: Array<{ placeId: number; note: string }> }> }> {
+    const { destination, days, pace, companion, budget, categories, startDate, customRequest } = dto;
     let cleanDest = destination
       .replace(/^Thành phố\s+/i, '')
       .replace(/^Thành Phố\s+/i, '')
@@ -859,8 +904,9 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       .trim();
     if (!cleanDest) cleanDest = destination;
 
-    // ─── STEP 1: RAG FETCH — Lấy địa điểm thực từ Database ───────────────────
-    const rawPlaces = await this.prisma.place.findMany({
+    // ─── STEP 1: RAG FETCH ALL APPROVED PLACES FROM DB (NO STAR RATING PENALTY) ───────
+
+    let candidatePlaces: any[] = await this.prisma.place.findMany({
       where: {
         isApproved: true,
         OR: [
@@ -871,169 +917,171 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       },
       include: {
         category: true,
-        reviews: {
-          take: 2,
-          orderBy: { rating: 'desc' },
-        },
+        reviews: { take: 2, orderBy: { rating: 'desc' } },
       },
-      orderBy: [
-        { userRatingCount: { sort: 'desc', nulls: 'last' } },
-        { rating: { sort: 'desc', nulls: 'last' } },
-      ],
-      take: 80,
+      take: 200,
     });
 
-    let candidatePlaces = rawPlaces;
-
     if (candidatePlaces.length === 0) {
-      // Fallback: Lấy các địa điểm nổi tiếng nhất hệ thống nếu chưa có dữ liệu riêng cho thành phố này
       candidatePlaces = await this.prisma.place.findMany({
         where: { isApproved: true },
         include: {
           category: true,
           reviews: { take: 2, orderBy: { rating: 'desc' } },
         },
-        orderBy: [
-          { userRatingCount: { sort: 'desc', nulls: 'last' } },
-          { rating: { sort: 'desc', nulls: 'last' } },
-        ],
-        take: 80,
+        take: 200,
       });
     }
 
-    // ─── FILTER: Loại bỏ địa điểm đã đóng cửa ────────────────────────────────
-    // Hai format được dùng:
-    //   1. Google weekday_text: { weekday_text: ["Monday: Closed", "Tuesday: 08:00–22:00", ...] }
-    //   2. Internal map: { monday: ["08:00", "22:00"], tuesday: null, ... }
-    const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    // ─── STEP 1b: FETCH EXPLICITLY REQUESTED PLACES (70% TEXT WEIGHT) ─────────────
+    const extractedKeywords = this.ruleEngine.extractSearchKeywords(customRequest);
+    const mustVisitPlaces: any[] = [];
+    const chuaPlaces: any[] = [];
+    const specificNamedPlaces: any[] = [];
 
-    const isPlaceClosed = (p: (typeof candidatePlaces)[number]): boolean => {
-      if (!p.openingHours) return false;
-      try {
-        const h = typeof p.openingHours === 'string'
-          ? JSON.parse(p.openingHours as string)
-          : p.openingHours as Record<string, unknown>;
+    const reqLower = (customRequest || '').toLowerCase();
+    const isChuaRequested = reqLower.includes('chùa') || reqLower.includes('phật') || reqLower.includes('thiền viện') || reqLower.includes('tịnh xá') || reqLower.includes('đền');
+    const isBienDongRequested = reqLower.includes('biển đông');
+    const isNinhKieuRequested = reqLower.includes('ninh kiều');
 
-        if (!h || typeof h !== 'object') return false;
-
-        // Format 1: weekday_text array — nếu tất cả đều "Closed" → đóng cửa
-        if (Array.isArray((h as Record<string, unknown>).weekday_text)) {
-          const texts = (h as Record<string, unknown[]>).weekday_text as string[];
-          const allClosed = texts.every(t =>
-            typeof t === 'string' && t.toLowerCase().includes('closed')
-          );
-          return allClosed && texts.length > 0;
-        }
-
-        // Format 2: map { monday: [...], tuesday: null, ... }
-        // Nếu map có chứa ít nhất 1 ngày key nhưng tất cả giá trị đều null/empty → đóng cửa
-        const hasDayKeys = dayKeys.some(d => Object.prototype.hasOwnProperty.call(h, d));
-        if (hasDayKeys) {
-          const allNull = dayKeys.every(d => {
-            const val = (h as Record<string, unknown>)[d];
-            if (val == null) return true;
-            if (Array.isArray(val) && val.length === 0) return true;
-            if (typeof val === 'string') {
-              const lower = val.toLowerCase();
-              return lower.includes('closed') || lower.includes('đóng cửa');
-            }
-            return false;
-          });
-          return allNull;
-        }
-      } catch { /* ignore */ }
-      return false;
-    };
-
-    const openPlaces = candidatePlaces.filter(p => !isPlaceClosed(p));
-    // Chỉ áp dụng filter nếu vẫn còn đủ địa điểm (ít nhất 2 địa điểm/ngày)
-    if (openPlaces.length >= days * 2) {
-      candidatePlaces = openPlaces;
+    // 1. Tìm chính xác Nhà hàng Biển Đông nếu khách gõ "biển đông"
+    if (isBienDongRequested) {
+      const bienDongMatches = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          name: { contains: 'Biển Đông', mode: 'insensitive' },
+        },
+        include: { category: true },
+      });
+      for (const bd of bienDongMatches) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(bd.id))) candidatePlaces.push(bd);
+        if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(bd.id))) mustVisitPlaces.push(bd);
+        if (!specificNamedPlaces.some((sp) => Number(sp.id) === Number(bd.id))) specificNamedPlaces.push(bd);
+      }
     }
 
+    // 2. Tìm chính xác Ninh Kiều / Cầu Ninh Kiều nếu khách gõ "ninh kiều"
+    if (isNinhKieuRequested) {
+      const ninhKieuMatches = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          OR: [
+            { name: { contains: 'Ninh Kiều', mode: 'insensitive' } },
+            { description: { contains: 'Ninh Kiều', mode: 'insensitive' } },
+          ],
+        },
+        include: { category: true },
+      });
+      for (const nk of ninhKieuMatches) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(nk.id))) candidatePlaces.push(nk);
+        if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(nk.id))) mustVisitPlaces.push(nk);
+        if (!specificNamedPlaces.some((sp) => Number(sp.id) === Number(nk.id))) specificNamedPlaces.push(nk);
+      }
+    }
 
-    // Filter by categories if specified
-    if (categories && categories.length > 0 && !categories.includes('Tất cả')) {
-      const filtered = candidatePlaces.filter(p => {
-        const catName = (p.category?.name || '').toLowerCase();
-        return categories.some(c => {
-          const cl = c.toLowerCase().split('&')[0].trim();
-          return catName.includes(cl) || cl.includes(catName);
+    // 3. Nếu người dùng nhập sở thích có "chùa", chủ động truy vấn TẤT CẢ các ngôi Chùa ở điểm đến trong DB
+    if (isChuaRequested) {
+      const dbChuas = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          OR: [
+            { name: { contains: 'Chùa', mode: 'insensitive' } },
+            { name: { contains: 'Thiền viện', mode: 'insensitive' } },
+            { name: { contains: 'Tịnh xá', mode: 'insensitive' } },
+            { name: { contains: 'Pagoda', mode: 'insensitive' } },
+            { description: { contains: 'chùa', mode: 'insensitive' } },
+          ],
+        },
+        include: { category: true },
+        take: 10,
+      });
+
+      for (const c of dbChuas) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(c.id))) {
+          candidatePlaces.push(c);
+        }
+        if (!chuaPlaces.some((cp) => Number(cp.id) === Number(c.id))) {
+          chuaPlaces.push(c);
+        }
+        if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(c.id))) {
+          mustVisitPlaces.push(c);
+        }
+      }
+    }
+
+    if (extractedKeywords.length > 0) {
+      for (const kw of extractedKeywords) {
+        const matches = await this.prisma.place.findMany({
+          where: {
+            isApproved: true,
+            OR: [
+              { name: { contains: kw, mode: 'insensitive' } },
+              { description: { contains: kw, mode: 'insensitive' } },
+            ],
+          },
+          include: { category: true },
+          take: 5,
         });
-      });
-      if (filtered.length >= days * 2) {
-        candidatePlaces = filtered;
+
+        for (const m of matches) {
+          if (!candidatePlaces.some((cp) => Number(cp.id) === Number(m.id))) {
+            candidatePlaces.push(m);
+          }
+          if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(m.id))) {
+            mustVisitPlaces.push(m);
+          }
+        }
       }
     }
 
-    // ─── STEP 1b: GEOGRAPHIC CLUSTERING ─────────────────────────────────────────
-    // Loại outlier địa lý: tính centroid từ top-20 địa điểm nổi bật nhất,
-    // sau đó chỉ giữ các địa điểm trong bán kính hợp lý.
-    const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-      const R = 6371;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLng = (lng2 - lng1) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
+    // ─── STEP 1c: FILTER OUT VAGUE / GENERIC PLACE NAMES (e.g. "Cần Thơ") ────
+    candidatePlaces = candidatePlaces.filter(
+      (p) => !this.ruleEngine.isVagueOrInvalidPlaceName(p.name, cleanDest),
+    );
 
-    // Lấy centroid từ top-20 địa điểm có toạ độ và rating cao nhất
-    const geoPlaces = candidatePlaces.filter(p => p.latitude && p.longitude);
-    if (geoPlaces.length >= days * 2) {
-      // Score = rating * log(userRatingCount + 1) — ưu tiên nơi vừa nổi vừa nhiều review
-      const scored = geoPlaces
-        .map(p => ({
-          p,
-          score: (p.rating ?? 3.5) * Math.log((p.userRatingCount ?? 1) + 1),
-        }))
-        .sort((a, b) => b.score - a.score);
+    // ─── STEP 2: WEATHER CHECK FROM WEATHER SERVICE ───────────────────────────
+    let isRainy = false;
+    try {
+      const tripStartDate = new Date(startDate);
+      const today = new Date();
+      const diffDays = Math.ceil((tripStartDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
 
-      const top20 = scored.slice(0, 20).map(s => s.p);
-      const centLat = top20.reduce((sum, p) => sum + p.latitude, 0) / top20.length;
-      const centLng = top20.reduce((sum, p) => sum + p.longitude, 0) / top20.length;
-
-      // Tính khoảng cách mỗi địa điểm đến centroid
-      const withDist = candidatePlaces
-        .filter(p => p.latitude && p.longitude)
-        .map(p => ({
-          p,
-          distKm: haversineKm(centLat, centLng, p.latitude, p.longitude),
-          score: (p.rating ?? 3.5) * Math.log((p.userRatingCount ?? 1) + 1),
-        }));
-
-      // Chọn bán kính phù hợp: ít nhất đủ days*4 địa điểm nhưng không quá 25km
-      const RADII = [5, 8, 12, 16, 20, 25];
-      let chosenRadius = 25;
-      for (const r of RADII) {
-        const inRadius = withDist.filter(x => x.distKm <= r);
-        if (inRadius.length >= days * 4) { chosenRadius = r; break; }
+      if (diffDays <= 7) {
+        const weatherInfo = (await this.weatherService.getWeatherForCity(cleanDest)) as any;
+        const cond = (weatherInfo?.condition || weatherInfo?.description || '').toLowerCase();
+        if (cond.includes('rain') || cond.includes('drizzle') || cond.includes('thunderstorm') || cond.includes('mưa') || cond.includes('bão')) {
+          isRainy = true;
+          this.logger.log(`Weather for ${cleanDest} is rainy (${cond}). Outdoor places will be filtered for indoor alternatives.`);
+        }
+      } else {
+        this.logger.log(`Trip date is ${diffDays} days in future. Defaulting weather to clear/sunny.`);
       }
-
-      // Sắp xếp: gần centroid + rating cao lên trước; lấy tối đa 60
-      const filtered = withDist
-        .filter(x => x.distKm <= chosenRadius)
-        .sort((a, b) => {
-          // Normalize: điểm gần (dist nhỏ) được thưởng, rating cao được thưởng
-          const distScore = -a.distKm * 0.3 + a.score;
-          const distScoreB = -b.distKm * 0.3 + b.score;
-          return distScoreB - distScore;
-        })
-        .slice(0, 60)
-        .map(x => x.p);
-
-      if (filtered.length >= days * 2) {
-        candidatePlaces = filtered;
-        this.logger.log(`Geo-cluster: radius=${chosenRadius}km, centroid=(${centLat.toFixed(4)},${centLng.toFixed(4)}), kept ${filtered.length} places`);
-      }
+    } catch (err: any) {
+      this.logger.warn(`Could not fetch weather forecast for ${cleanDest}: ${err.message}. Assuming clear weather.`);
     }
 
-    // ─── STEP 2: BUILD CONTEXT & PROMPT FOR GEMINI ────────────────────────────
+    // ─── STEP 3: RULE-BASED RELEVANCE SCORING & HARD FILTERS ────────────────
+    const scoredPlaces = candidatePlaces.map((p) => {
+      const relevanceScore = this.ruleEngine.scorePlaceRelevance(p, { categories, budget, customRequest });
+      return { ...p, relevanceScore };
+    });
 
+    // 1. Hard Rule: Lọc theo thời tiết
+    candidatePlaces = this.ruleEngine.filterByWeather(scoredPlaces, isRainy);
+
+    // 2. Hard Rule: Lọc theo ngân sách (Budget Filter)
+    candidatePlaces = this.ruleEngine.filterByBudget(candidatePlaces, budget);
+
+    // Group candidates by role
+    const { hotels, dining, cafes, activities } = this.ruleEngine.groupPlacesByRole(candidatePlaces);
+
+    // Pick 1 single hotel for Day 1 Check-in (13:00 - 14:00)
+    const anchorHotel = hotels.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))[0] || candidatePlaces[0];
+
+    // ─── STEP 4: PREPARE PROMPT & CONTEXT FOR GEMINI ─────────────────────────
     const startDateObj = new Date(startDate);
     const weekdayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
 
-    // Build day-by-date mapping for opening hours context
     const dayDateList: string[] = [];
     for (let i = 0; i < days; i++) {
       const d = new Date(startDateObj);
@@ -1041,110 +1089,73 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       dayDateList.push(`Ngày ${i + 1}: ${weekdayNames[d.getDay()]} (${d.toLocaleDateString('vi-VN')})`);
     }
 
-    // Serialize candidate places with clear per-day availability for Gemini
-    const dayKeyMap: Record<string, string> = {
-      monday: 'T2', tuesday: 'T3', wednesday: 'T4',
-      thursday: 'T5', friday: 'T6', saturday: 'T7', sunday: 'CN',
-    };
+    const placesJson = candidatePlaces.map((p) => ({
+      id: Number(p.id),
+      name: p.name,
+      category: p.category?.name || 'Khác',
+      address: p.address || '',
+      priceLevel: p.priceLevel || null,
+      openingHours: p.openingHours || null,
+      description: p.description ? p.description.substring(0, 150) : null,
+      lat: p.latitude ? Number(p.latitude) : null,
+      lng: p.longitude ? Number(p.longitude) : null,
+      isOutdoor: this.ruleEngine.isOutdoorPlace(p),
+      score: (p as any).relevanceScore || 50,
+    }));
 
-    const getOpenDays = (hoursData: unknown): string => {
-      if (!hoursData) return 'Không có thông tin';
-      try {
-        const h = typeof hoursData === 'string' ? JSON.parse(hoursData) : hoursData;
+    const pLower = (pace || '').toLowerCase();
+    let minPlacesPerDay = 5; // Default: 'Vừa phải' (4-5 điểm, tối ưu là 5)
+    let pacePromptInstruction = '- NHỊP ĐỘ VỪA PHẢI (4-5 ĐIỂM/NGÀY): BẮT BUỘC MỖI NGÀY PHẢI CÓ TỪ 4 ĐẾN 5 ĐỊA ĐIỂM (TỐI ƯU LÀ 5 ĐỊA ĐIỂM).';
 
-        // Format 1: Google weekday_text
-        if (h?.weekday_text && Array.isArray(h.weekday_text) && h.weekday_text.length === 7) {
-          const wt = h.weekday_text as string[];
-          // weekday_text[0] = Monday, [6] = Sunday
-          const dayLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-          const open: string[] = [];
-          const closed: string[] = [];
-          wt.forEach((text: string, i: number) => {
-            const t = text.toLowerCase();
-            // Extract time range from string like "Monday: 08:00 – 22:00"
-            if (t.includes('closed') || t.includes('đóng')) {
-              closed.push(dayLabels[i]);
-            } else {
-              const timeMatch = text.match(/(\d{1,2}:\d{2})\s*[–\-]\s*(\d{1,2}:\d{2})/);
-              open.push(timeMatch ? `${dayLabels[i]}(${timeMatch[1]}-${timeMatch[2]})` : dayLabels[i]);
-            }
-          });
-          if (closed.length === 7) return 'Tạm đóng cửa';
-          if (open.length === 7) return 'Mở cả tuần';
-          return `Mở: ${open.join(', ')} | Đóng: ${closed.join(', ')}`;
-        }
+    if (pLower.includes('thong thả')) {
+      minPlacesPerDay = 4; // 'Thong thả' (3-4 điểm, tối ưu là 4)
+      pacePromptInstruction = '- NHỊP ĐỘ THONG THẢ (3-4 ĐIỂM/NGÀY): BẮT BUỘC MỖI NGÀY PHẢI CÓ TỪ 3 ĐẾN 4 ĐỊA ĐIỂM (TỐI ƯU LÀ 4 ĐỊA ĐIỂM).';
+    } else if (pLower.includes('dày đặc')) {
+      minPlacesPerDay = 6; // 'Dày đặc' (6 điểm)
+      pacePromptInstruction = '- NHỊP ĐỘ DÀY ĐẶC (6 ĐIỂM/NGÀY): BẮT BUỘC MỖI NGÀY PHẢI CÓ ĐỦ 6 ĐỊA ĐIỂM CHẤT LƯỢNG.';
+    }
 
-        // Format 2: internal map { monday: ['08:00', '22:00'], tuesday: null, ... }
-        const hasDayKeys = dayKeys.some(d => Object.prototype.hasOwnProperty.call(h, d));
-        if (hasDayKeys) {
-          const open: string[] = [];
-          const closed: string[] = [];
-          dayKeys.forEach(d => {
-            const label = dayKeyMap[d];
-            const val = h[d];
-            if (!val || (Array.isArray(val) && val.length === 0)) {
-              closed.push(label);
-            } else if (Array.isArray(val) && val.length >= 2) {
-              open.push(`${label}(${val[0]}-${val[1]})`);
-            } else {
-              const s = String(val).toLowerCase();
-              if (s.includes('closed') || s.includes('đóng')) closed.push(label);
-              else open.push(`${label}(${val})`);
-            }
-          });
-          if (closed.length === 7) return 'Tạm đóng cửa';
-          if (open.length === 7) return 'Mở cả tuần';
-          return `Mở: ${open.join(', ')} | Đóng: ${closed.join(', ')}`;
-        }
-      } catch { /* ignore */ }
-      return 'Không có thông tin';
-    };
+    const systemInstruction = `Bạn là chuyên gia thiết kế hành trình du lịch thông minh số 1 Việt Nam cho Cloudmood.
+Nhiệm vụ: Thấu hiểu NGỮ CẢNH sâu sắc từ INPUT người dùng, kết hợp dữ liệu thực tế 100% từ CSDL Cloudmood và Bộ Thước Đo Luật để xây dựng lịch trình ${days} ngày tối ưu nhất.
 
-    const placesJson = candidatePlaces.map(p => {
-      const topReview = p.reviews?.[0]?.comment?.substring(0, 100) || null;
+PHÂN TÍCH CHÂN DUNG CHUYẾN ĐI (USER CONTEXT):
+- Điểm đến: ${destination} (${days} ngày)
+- Nhịp độ: ${pace || 'Vừa phải'}
+- Bạn đồng hành: ${companion || 'Tự do'} (Hãy chọn địa điểm phù hợp với phong cách đối tượng này: Cặp đôi -> Lãng mạn/View đẹp; Gia đình -> An toàn/Rộng rãi; Bạn bè -> Năng động/Check-in).
+- Ngân sách: ${budget || 'Vừa phải'}
+- Sở thích Văn bản (70% Trọng số tối cao): "${customRequest || 'Không có'}"
+  -> AI hãy đọc kỹ các ĐỊA ĐIỂM TÊN RIÊNG VÀ SỞ THÍCH trong văn bản này.
+  ${isBienDongRequested ? `-> BẮT BUỘC: Khách yêu cầu ăn ở Nhà Hàng Biển Đông! BẮT BUỘC chọn "Nhà Hàng Biển Đông" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Biển Đông'))?.id || 1185}) cho 1 bữa ăn trưa hoặc tối.` : ''}
+  ${isNinhKieuRequested ? `-> BẮT BUỘC: Khách muốn đi Cầu/Bến Ninh Kiều buổi tối! BẮT BUỘC chọn "Cầu Đi Bộ Bến Ninh Kiều" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Ninh Kiều'))?.id || 1170}) vào BUỔI TỐI (19:00 - 22:00).` : ''}
+  ${isChuaRequested ? `-> BẮT BUỘC: Khách muốn đi Chùa, hãy chọn 1-2 ngôi Chùa trong danh sách: ${chuaPlaces.map((c) => `${c.name} (ID: ${c.id})`).join(', ')}. KHÔNG ĐƯỢC XẾP NỀN NỀN CÁC NGÔI CHÙA LIÊN TIẾP CÙNG 1 BUỔI SÁNG.` : ''}
 
-      return {
-        id: Number(p.id),
-        name: p.name,
-        category: p.category?.name || 'Khác',
-        address: p.address || '',
-        rating: p.rating ? Number(p.rating) : null,
-        priceLevel: p.priceLevel || null,
-        description: p.description ? p.description.substring(0, 150) : null,
-        openDays: getOpenDays(p.openingHours),
-        lat: p.latitude ? Number(p.latitude) : null,
-        lng: p.longitude ? Number(p.longitude) : null,
-        topReview,
-      };
-    });
+QUY TẮC BẮT BUỘC VỀ NHỊP SINH HOẠT HẰNG NGÀY ("ĂN UỐNG - VUI CHƠI - NGHỈ NGƠI"):
+1. TUYỆT ĐỐI KHÔNG XẾP 2 HOẶC 3 ĐỊA ĐIỂM THAM QUAN / CHÙA LIÊN TIẾP TRONG NỬA NGÀY TỪ 07:00 ĐẾN 13:00!
+2. TIẾN TRÌNH XEN KẼ SINH HỌC CHUẨN MỖI NGÀY:
+   - 07:00 - 08:30: BẮT BUỘC Ăn sáng / Cà phê sáng (Quán ăn / Cà phê).
+   - 08:30 - 11:30: Tham quan 1 địa điểm chính (Chùa 1 / Bảo tàng / Điểm du lịch).
+   - 11:30 - 13:30: BẮT BUỘC Ăn trưa & Nghỉ trưa (Nhà hàng / Quán ăn).
+   - 13:30 - 14:30: Cà phê chiều hoặc Check-in Khách sạn (Ngày 1).
+   - 14:30 - 17:30: Tham quan 1 địa điểm thứ 2 (Chùa 2 / Công viên / Điểm du lịch).
+   - 17:30 - 20:00: BẮT BUỘC Ăn tối (Nhà Hàng Biển Đông / Quán ăn / Lẩu / Hải sản).
+   - 20:00 - 22:00: Vui chơi & Dạo phố đêm (Cầu Ninh Kiều / Chợ đêm / Cà phê view sông).
+3. QUY TẮC ĐỊA ĐIỂM XA NGOẠI Ô & NGÀY CUỐI (OUTLIER HALF-DAY TOUR):
+   - Nếu khách yêu cầu đi địa điểm xa hoặc gõ "ngày cuối", "trước khi về": BẮT BUỘC xếp địa điểm xa đó vào SÁNG NGÀY CUỐI CÙNG (Chặng Ngoại Ô Nửa Ngày).
+   - Chọn 1 quán ăn/cà phê địa phương nằm gần sát địa điểm xa đó (< 3km) để khách dừng chân dùng bữa trưa miệt vườn.
+   - Chiều ngày cuối cho khách quay về Trung tâm mua đặc sản và kết thúc chuyến đi.
+4. CHỈ DÙNG ID ĐỊA ĐIỂM CÓ TRONG DANH SÁCH JSON BÊN DƯỚI. TUYỆT ĐỐI KHÔNG BỊA ĐỊA ĐIỂM HOẶC ID MỚI.
+5. Trả về JSON thuần túy theo đúng format.
 
-
-    const paceLabel = pace.includes('Thong thả') ? '2-3 địa điểm mỗi ngày (thư thái, nghỉ dưỡng)'
-      : pace.includes('Dày đặc') ? '5-6 địa điểm mỗi ngày (khám phá tối đa)'
-        : '3-4 địa điểm mỗi ngày (cân bằng trải nghiệm và nghỉ ngơi)';
-
-    const systemInstruction = `Bạn là chuyên gia lập lịch trình du lịch hàng đầu Việt Nam với 20 năm kinh nghiệm.
-Nhiệm vụ của bạn: Phân tích yêu cầu chuyến đi, tuyển chọn địa điểm phù hợp từ danh sách được cung cấp, và tạo ra lịch trình ${days} ngày hoàn hảo.
-
-QUY TẮC QUAN TRỌNG (PHẢI TUÂN THỦ NGHIÊM NGẶT):
-1. Chỉ được dùng các "id" địa điểm có trong danh sách JSON bên dưới — KHÔNG được bịa hoặc tự tạo id mới.
-2. Mỗi địa điểm chỉ xuất hiện đúng 1 lần trong toàn bộ lịch trình.
-3. BẮT BUỘC KIỂM TRA NGÀY MỞ CỬA: Mỗi địa điểm có trường "openDays" cho biết ngày nào mở (T2=Thứ Hai, T3=Thứ Ba, T4=Thứ Tư, T5=Thứ Năm, T6=Thứ Sáu, T7=Thứ Bảy, CN=Chủ Nhật). Ví dụ "Mở: T2(08:00-22:00) | Đóng: T3, T4, T5, T6, T7, CN" nghĩa là địa điểm CHỈ mở Thứ Hai. Bạn TUYỆT ĐỐI KHÔNG được xếp địa điểm này vào ngày T3, T4, T5, T6, T7 hay CN. Lịch cụ thể từng ngày trong tuần đã có trong "Lịch từng ngày" — hãy đối chiếu trước khi xếp.
-4. BẮT BUỘC VỀ ĐỊA LÝ: Các địa điểm trong CÙNG MỘT NGÀY phải nằm trong cùng một khu vực, khoảng cách giữa chúng không vượt quá 6-8km (dùng lat/lng để ước tính). Không được xếp địa điểm ở đầu thành phố và cuối thành phố vào cùng một ngày. Hãy tưởng tượng người đi bộ hoặc đi xe máy — họ nên đi theo một hành trình mạch lạc, không zigzag.
-5. ƯU TIÊN ĐỊA ĐIỂM HOT: Trước tiên chọn các địa điểm có rating cao (>= 4.0) và nhiều review (userRatingCount lớn). Đây là những nơi được du khách yêu thích nhất. Chỉ dùng địa điểm ít nổi hơn khi không đủ địa điểm hot trong khu vực đó.
-6. Đảm bảo đúng số lượng địa điểm theo nhịp độ được yêu cầu.
-7. Trả về JSON hợp lệ, không thêm markdown, không thêm giải thích, không thêm text trước hoặc sau JSON.
-
-FORMAT JSON TRẢ VỀ (chính xác theo cấu trúc này):
+FORMAT JSON TRẢ VỀ:
 {
   "days": [
     {
       "dayNumber": 1,
-      "dayTitle": "Tên chủ đề ngày 1 sáng tạo, gợi cảm xúc",
+      "dayTitle": "Tiêu đề ngày 1 sinh động, đúng chủ đề",
       "places": [
         {
           "placeId": 123,
-          "note": "Câu ghi chú chi tiết, sinh động, cá nhân hóa cho địa điểm này (1-2 câu, không dùng emoji)"
+          "note": "Ghi chú tinh tế giải thích lý do chọn địa điểm này cho khách (1-2 câu)"
         }
       ]
     }
@@ -1155,33 +1166,25 @@ FORMAT JSON TRẢ VỀ (chính xác theo cấu trúc này):
 - Điểm đến: ${destination}
 - Số ngày: ${days} ngày
 - Lịch từng ngày: ${dayDateList.join(', ')}
-- Nhịp độ: ${paceLabel}
-- Đi cùng: ${companion || 'Không xác định'}
+- Khách sạn Check-in Ngày 1: ${anchorHotel.name} (ID: ${anchorHotel.id})
+- YÊU CẦU TEXT ĐẶC BIỆT CỦA KHÁCH (TRỌNG SỐ 70%): "${customRequest || 'Không có'}"
+- CÁC ĐỊA ĐIỂM ƯU TIÊN BẮT BUỘC PHẢI CÓ TRONG LỊCH TRÌNH: ${mustVisitPlaces.map((m) => `${m.name} (ID: ${m.id})`).join(', ')}
+- Danh mục lựa chọn (Trọng số 30%): ${categories?.join(', ') || 'Tất cả'}
 - Ngân sách: ${budget || 'Vừa phải'}
-${customRequest ? `- Yêu cầu riêng: "${customRequest}"` : ''}
 
-DANH SÁCH ĐỊA ĐIỂM THỰC TẾ TỪ CLOUDMOOD DATABASE:
+DANH SÁCH ĐỊA ĐIỂM THỰC TẾ TỪ CLOUDMOOD CSDL:
 ${JSON.stringify(placesJson, null, 2)}
 
-Hãy tạo lịch trình ${days} ngày với nhịp độ ${paceLabel}. Viết tiêu đề ngày sáng tạo và ghi chú địa điểm chi tiết, tự nhiên, thể hiện đúng văn hóa và đặc trưng của từng nơi. Trả về JSON thuần túy.`;
+Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ quy tắc trên. Trả về JSON thuần túy.`;
 
     const payload = {
-      system_instruction: {
-        parts: [{ text: systemInstruction }],
-      },
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: userPrompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.75,
-        responseMimeType: 'application/json',
-      },
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { temperature: 0.7, responseMimeType: 'application/json' },
     };
 
-    // ─── STEP 3: CALL GEMINI AI ────────────────────────────────────────────────
+
+    // ─── STEP 5: CALL GEMINI AI ──────────────────────────────────────────────
     let rawText = '';
     try {
       const response = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', payload);
@@ -1196,10 +1199,9 @@ Hãy tạo lịch trình ${days} ngày với nhịp độ ${paceLabel}. Viết t
       throw new Error('Trợ lý AI không trả về kết quả. Vui lòng thử lại sau.');
     }
 
-    // ─── STEP 4: PARSE & VALIDATE JSON FROM GEMINI ────────────────────────────
+    // ─── STEP 6: PARSE & SANITIZE ────────────────────────────────────────────
     let parsed: any;
     try {
-      // Strip possible markdown code fences
       const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
       parsed = JSON.parse(cleaned);
     } catch {
@@ -1207,66 +1209,15 @@ Hãy tạo lịch trình ${days} ngày với nhịp độ ${paceLabel}. Viết t
       throw new Error('Trợ lý AI trả về dữ liệu không hợp lệ. Vui lòng thử lại.');
     }
 
-    // Build valid ID set + hoursMap for post-validation
-    const validIdSet = new Set(candidatePlaces.map(p => Number(p.id)));
+    const validIdSet = new Set(candidatePlaces.map((p) => Number(p.id)));
     const usedIdSet = new Set<number>();
-    const placeHoursMap = new Map(candidatePlaces.map(p => [Number(p.id), p.openingHours]));
-
-    // weekday: JS Date.getDay() => 0=Sun,1=Mon,...,6=Sat
-    const weekdayToKeyLocal = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-    const isOpenOnWeekday = (hoursData: unknown, weekdayIdx: number): boolean => {
-      if (!hoursData) return true;
-      try {
-        const h = typeof hoursData === 'string' ? JSON.parse(hoursData as string) : hoursData as Record<string, unknown>;
-
-        // Format 1: weekday_text (0=Monday, 6=Sunday)
-        const wt = (h as Record<string, unknown>)?.weekday_text;
-        if (wt && Array.isArray(wt) && (wt as unknown[]).length === 7) {
-          const wtIdx = weekdayIdx === 0 ? 6 : weekdayIdx - 1;
-          const text = ((wt as string[])[wtIdx] || '').toLowerCase();
-          return !text.includes('closed') && !text.includes('dong');
-        }
-
-        // Format 2: internal map { monday: [...], ... }
-        const dayKey = weekdayToKeyLocal[weekdayIdx];
-        const hasDayKeysHere = dayKeys.some(d => Object.prototype.hasOwnProperty.call(h, d));
-        if (hasDayKeysHere) {
-          if (!Object.prototype.hasOwnProperty.call(h, dayKey)) return false;
-          const val = (h as Record<string, unknown>)[dayKey];
-          if (!val) return false;
-          if (Array.isArray(val)) return (val as unknown[]).length > 0;
-          const s = String(val).toLowerCase();
-          return !s.includes('closed') && !s.includes('dong');
-        }
-      } catch { /* ignore */ }
-      return true;
-    };
-
-    // Validate and sanitize (includes per-weekday opening hours check)
-    const startDateObjFinal = new Date(startDate);
 
     const validatedDays = (parsed.days || []).map((day: any, idx: number) => {
-      const tripDate = new Date(startDateObjFinal);
-      tripDate.setDate(tripDate.getDate() + idx);
-      const weekdayIdx = tripDate.getDay();
-
       const validatedPlaces = (day.places || [])
         .filter((p: any) => {
           const pid = Number(p.placeId);
-          if (!validIdSet.has(pid)) {
-            this.logger.warn('Gemini invalid placeId ' + pid + ' - skipping');
-            return false;
-          }
-          if (usedIdSet.has(pid)) {
-            this.logger.warn('Gemini duplicate placeId ' + pid + ' - skipping');
-            return false;
-          }
-          const hoursData = placeHoursMap.get(pid);
-          if (!isOpenOnWeekday(hoursData, weekdayIdx)) {
-            this.logger.warn('Gemini placed id=' + pid + ' on closed weekday ' + weekdayIdx + ' - removing');
-            return false;
-          }
+          if (!validIdSet.has(pid)) return false;
+          if (usedIdSet.has(pid)) return false;
           usedIdSet.add(pid);
           return true;
         })
@@ -1277,14 +1228,256 @@ Hãy tạo lịch trình ${days} ngày với nhịp độ ${paceLabel}. Viết t
 
       return {
         dayNumber: day.dayNumber || idx + 1,
-        dayTitle: (day.dayTitle || ('Ngay ' + (idx + 1))).toString().trim(),
+        dayTitle: (day.dayTitle || `Ngày ${idx + 1}`).toString().trim(),
         places: validatedPlaces,
       };
     });
 
-    this.logger.log('generateItinerary: ' + validatedDays.length + ' days, ' + usedIdSet.size + ' places for "' + destination + '"');
+    // ─── STEP 7: DAILY RHYTHM & ALTERNATING SANITIZER ─────────────
+    for (const day of validatedDays) {
+      // 1. Tự động bù đắp địa điểm cho đủ định mức số lượng địa điểm/ngày
+      while (day.places.length < minPlacesPerDay) {
+        const unusedCandidate = candidatePlaces.find(
+          (cp) => !usedIdSet.has(Number(cp.id)) && !this.ruleEngine.isVagueOrInvalidPlaceName(cp.name, cleanDest),
+        );
+        if (!unusedCandidate) break;
 
-    return { days: validatedDays };
+        const pid = Number(unusedCandidate.id);
+        usedIdSet.add(pid);
+        day.places.push({
+          placeId: pid,
+          note: `Ghé thăm ${unusedCandidate.name} (${unusedCandidate.category?.name || 'Điểm đến'}) cho lịch trình trọn vẹn của bạn.`,
+        });
+      }
+
+      // 2. Kiểm tra & Bắt buộc Địa điểm mở đầu ngày (07:00-08:30) phải là Bữa Ăn/Cà phê
+      if (day.places.length > 0) {
+        const firstPlaceObj = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[0].placeId));
+        const firstCat = ((firstPlaceObj?.category?.name || '') + ' ' + (firstPlaceObj?.name || '')).toLowerCase();
+        const isFirstDining = firstCat.includes('quán') || firstCat.includes('nhà hàng') || firstCat.includes('cà phê') || firstCat.includes('phở') || firstCat.includes('bún');
+
+        if (!isFirstDining) {
+          const unusedBreakfast = candidatePlaces.find(
+            (cp) =>
+              !usedIdSet.has(Number(cp.id)) &&
+              ((cp.category?.name || '') + ' ' + (cp.name || '')).toLowerCase().match(/(cà phê|cafe|bún|phở|quán|nhà hàng)/i),
+          );
+          if (unusedBreakfast) {
+            const pid = Number(unusedBreakfast.id);
+            usedIdSet.add(pid);
+            day.places.unshift({
+              placeId: pid,
+              note: `Thưởng thức điểm tâm sáng & cà phê nạp năng lượng tại ${unusedBreakfast.name}.`,
+            });
+          }
+        }
+      }
+
+      // 3. Tách rời nếu có 2 ngôi Chùa / Tham quan bị xếp liên tiếp cùng một buổi
+      for (let i = 0; i < day.places.length - 1; i++) {
+        const p1 = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[i].placeId));
+        const p2 = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[i + 1].placeId));
+
+        const isP1Activity = p1 && !['nhà hàng', 'quán ăn', 'cà phê', 'ẩm thực', 'khách sạn'].some((k) => (p1.category?.name || '').toLowerCase().includes(k));
+        const isP2Activity = p2 && !['nhà hàng', 'quán ăn', 'cà phê', 'ẩm thực', 'khách sạn'].some((k) => (p2.category?.name || '').toLowerCase().includes(k));
+
+        if (isP1Activity && isP2Activity) {
+          const unusedFood = candidatePlaces.find(
+            (cp) =>
+              !usedIdSet.has(Number(cp.id)) &&
+              ['nhà hàng', 'quán ăn', 'cà phê', 'ẩm thực'].some((k) => (cp.category?.name || '').toLowerCase().includes(k)),
+          );
+
+          if (unusedFood) {
+            const pid = Number(unusedFood.id);
+            usedIdSet.add(pid);
+            day.places.splice(i + 1, 0, {
+              placeId: pid,
+              note: `Nghỉ chân và dùng bữa tại ${unusedFood.name} giữa các điểm tham quan.`,
+            });
+            break;
+          }
+        }
+      }
+    }
+
+    // ─── STEP 8: POST-VALIDATION SAFETY NET FOR NAMED PLACES ──
+    // 8a. Auto-inject Nhà Hàng Biển Đông nếu khách có yêu cầu mà AI bỏ sót
+    if (isBienDongRequested) {
+      const bienDongPlace = candidatePlaces.find((cp) => (cp.name || '').toLowerCase().includes('biển đông'));
+      if (bienDongPlace) {
+        let hasBienDong = false;
+        for (const d of validatedDays) {
+          if (d.places.some((p: any) => Number(p.placeId) === Number(bienDongPlace.id))) {
+            hasBienDong = true;
+            break;
+          }
+        }
+        if (!hasBienDong && validatedDays.length > 0) {
+          const targetDay = validatedDays[0];
+          targetDay.places.push({
+            placeId: Number(bienDongPlace.id),
+            note: `Thưởng thức hải sản tươi ngon đặc sắc tại ${bienDongPlace.name} theo đúng sở thích của bạn.`,
+          });
+          this.logger.log(`[SAFETY NET] Auto-injected ${bienDongPlace.name} (ID: ${bienDongPlace.id}) into Day ${targetDay.dayNumber}.`);
+        }
+      }
+    }
+
+    // 8b. Auto-inject Cầu Ninh Kiều vào buổi tối nếu khách có yêu cầu mà AI bỏ sót
+    if (isNinhKieuRequested) {
+      const ninhKieuPlace = candidatePlaces.find((cp) => (cp.name || '').toLowerCase().includes('ninh kiều'));
+      if (ninhKieuPlace) {
+        let hasNinhKieu = false;
+        for (const d of validatedDays) {
+          if (d.places.some((p: any) => Number(p.placeId) === Number(ninhKieuPlace.id))) {
+            hasNinhKieu = true;
+            break;
+          }
+        }
+        if (!hasNinhKieu && validatedDays.length > 0) {
+          const targetDay = validatedDays[0];
+          targetDay.places.push({
+            placeId: Number(ninhKieuPlace.id),
+            note: `Dạo bước ngắm cảnh lung linh về đêm tại ${ninhKieuPlace.name}.`,
+          });
+          this.logger.log(`[SAFETY NET] Auto-injected ${ninhKieuPlace.name} (ID: ${ninhKieuPlace.id}) into Day ${targetDay.dayNumber}.`);
+        }
+      }
+    }
+
+    // 8c. Auto-inject Chùa nếu khách có yêu cầu mà AI bỏ sót
+    if (isChuaRequested && chuaPlaces.length > 0) {
+      let containsChua = false;
+      for (const d of validatedDays) {
+        for (const p of d.places) {
+          const matchChua = candidatePlaces.find((cp) => Number(cp.id) === Number(p.placeId));
+          if (matchChua) {
+            const nameL = (matchChua.name || '').toLowerCase();
+            const catL = (matchChua.category?.name || '').toLowerCase();
+            if (nameL.includes('chùa') || nameL.includes('thiền viện') || nameL.includes('tịnh xá') || nameL.includes('pagoda') || catL.includes('chùa')) {
+              containsChua = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // Nếu AI trót bỏ sót Chùa, Backend tự động thay thế 1 điểm tham quan Ngày 2 bằng Chùa top 1 từ DB
+      if (!containsChua && validatedDays.length > 0) {
+        const topChua = chuaPlaces[0];
+        const targetDay = validatedDays[1] || validatedDays[0];
+        if (targetDay && targetDay.places.length > 1) {
+          targetDay.places[1] = {
+            placeId: Number(topChua.id),
+            note: `Viếng ${topChua.name} thanh tịnh, cầu bình an cho gia đình theo đúng nguyện vọng chuyến đi của bạn.`,
+          };
+          this.logger.log(`[SAFETY NET] Auto-injected Chùa ${topChua.name} (ID: ${topChua.id}) into Day ${targetDay.dayNumber}.`);
+        }
+      }
+    }
+
+    // ─── STEP 9: GEOGRAPHIC NEAREST-NEIGHBOR ROUTE OPTIMIZER ────────────
+    const candidatePlacesMap = new Map<number, any>(candidatePlaces.map((cp) => [Number(cp.id), cp]));
+
+    const finalOptimizedDays = validatedDays.map((d) => {
+      const sortedPlaces = this.ruleEngine.optimizeDayRouteByDistance(d.places, candidatePlacesMap);
+      return {
+        ...d,
+        places: sortedPlaces,
+      };
+    });
+
+    this.logger.log(`generateItinerary: ${finalOptimizedDays.length} days generated using Rule-Based + Gemini RAG + Geographic TSP pipeline.`);
+    return { days: finalOptimizedDays };
   }
+
+  // ============================================
+  // EMERGENCY REPLACEMENT API (Đổi địa điểm đột xuất)
+  // ============================================
+  async replacePlace(dto: {
+    destination?: string;
+    currentLat: number;
+    currentLng: number;
+    oldPlaceId: number;
+    isRainy?: boolean;
+    categoryNeeded?: string;
+  }): Promise<{ success: boolean; replacementPlace: any }> {
+    const { destination, currentLat, currentLng, oldPlaceId, isRainy, categoryNeeded } = dto;
+
+    // Fetch approved candidate places
+    const candidates = await this.prisma.place.findMany({
+      where: {
+        isApproved: true,
+        id: { not: BigInt(oldPlaceId) },
+        ...(destination
+          ? {
+              OR: [
+                { address: { contains: destination, mode: 'insensitive' } },
+                { name: { contains: destination, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      include: { category: true },
+      take: 100,
+    });
+
+    if (candidates.length === 0) {
+      throw new Error('Không tìm thấy địa điểm thay thế phù hợp trong CSDL.');
+    }
+
+    // 1. Calculate proximity (< 6km from current location)
+    const withDistance = candidates.map((p) => {
+      const distKm = p.latitude && p.longitude
+        ? this.ruleEngine.calculateHaversineKm(currentLat, currentLng, p.latitude, p.longitude)
+        : 999;
+      return { ...p, distKm };
+    });
+
+    let validCandidates = withDistance.filter((p) => p.distKm <= 6);
+    if (validCandidates.length === 0) {
+      // Fallback: broaden radius to 10km if 6km is too tight
+      validCandidates = withDistance.filter((p) => p.distKm <= 10);
+    }
+
+    if (validCandidates.length === 0) {
+      validCandidates = withDistance;
+    }
+
+    // 2. Filter by weather if rainy
+    if (isRainy) {
+      validCandidates = this.ruleEngine.filterByWeather(validCandidates, true);
+    }
+
+    // 3. Match requested category if specified
+    if (categoryNeeded) {
+      const catLower = categoryNeeded.toLowerCase();
+      const matched = validCandidates.filter((p) => (p.category?.name || '').toLowerCase().includes(catLower));
+      if (matched.length > 0) validCandidates = matched;
+    }
+
+    // Sort by proximity & score
+    validCandidates.sort((a, b) => a.distKm - b.distKm);
+    const chosen = validCandidates[0];
+
+    return {
+      success: true,
+      replacementPlace: {
+        id: Number(chosen.id),
+        name: chosen.name,
+        category: chosen.category?.name || 'Khác',
+        address: chosen.address,
+        image: chosen.image,
+        price: chosen.price,
+        latitude: chosen.latitude,
+        longitude: chosen.longitude,
+        distanceKm: Number(chosen.distKm.toFixed(2)),
+        isOutdoor: this.ruleEngine.isOutdoorPlace(chosen),
+        note: `Địa điểm gợi ý thay thế gần bạn (${chosen.distKm.toFixed(1)} km), phù hợp với điều kiện thực tế hiện tại.`,
+      },
+    };
+  }
+
 }
 
