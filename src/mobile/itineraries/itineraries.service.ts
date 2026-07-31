@@ -516,6 +516,27 @@ export class ItinerariesService implements OnModuleInit {
     return res;
   }
 
+  async addBulkDetails(itineraryId: number, detailsData: any[], updatedByUserId?: string) {
+    if (!Array.isArray(detailsData) || detailsData.length === 0) return [];
+
+    const records = detailsData.map((d) => ({
+      itineraryId: BigInt(itineraryId),
+      placeId: d.placeId ? BigInt(d.placeId) : null,
+      day: d.day,
+      sortOrder: d.sortOrder,
+      noteText: d.noteText || null,
+      startTime: d.startTime || null,
+      endTime: d.endTime || null,
+    }));
+
+    await this.prisma.itineraryDetail.createMany({
+      data: records,
+    });
+
+    this.itinerariesGateway.broadcastItineraryUpdate(itineraryId.toString(), updatedByUserId, 'ADD_BULK_DETAILS');
+    return true;
+  }
+
   async deleteDetail(id: number, updatedByUserId?: string) {
     const detail = await this.prisma.itineraryDetail.findUnique({ where: { id: BigInt(id) } });
     if (!detail) {

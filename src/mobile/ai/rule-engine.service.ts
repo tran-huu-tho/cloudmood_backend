@@ -192,6 +192,103 @@ export class RuleEngineService {
   }
 
   /**
+   * Phân loại mục đích thời gian thực tế của địa điểm
+   */
+  getPlaceBiologicalCategory(place: any): 'BREAKFAST' | 'DAYTIME_ATTRACTION' | 'DINNER' | 'NIGHT_ACTIVITY' {
+    if (!place) return 'DAYTIME_ATTRACTION';
+    const catName = (place.category?.name || '').toLowerCase();
+    const name = (place.name || '').toLowerCase();
+    const desc = (place.description || '').toLowerCase();
+    const fullText = `${catName} ${name} ${desc}`;
+
+    // 1. Địa điểm ban ngày bắt buộc: Chùa, Thiền viện, Tịnh xá, Bảo tàng, Di tích, Công viên, Nông trại, Đền, Miếu, Nhà cổ, Chợ nổi
+    const isDaytimeAttraction = [
+      'chùa', 'thiền viện', 'tịnh xá', 'bảo tàng', 'di tích', 'công viên', 'nông trại',
+      'đền', 'miếu', 'lăng', 'nhà cổ', 'pagoda', 'khu du lịch', 'sinh thái', 'chợ nổi'
+    ].some((k) => fullText.includes(k));
+
+    if (isDaytimeAttraction) return 'DAYTIME_ATTRACTION';
+
+    // 2. Địa điểm buổi tối / ban đêm: Chợ đêm, Cầu đi bộ, Bến Ninh Kiều, Bar, Pub, Karaoke, Cà phê đêm, Phố đi bộ
+    const isNightActivity = [
+      'chợ đêm', 'cầu đi bộ', 'ninh kiều', 'bar', 'pub', 'club', 'karaoke', 'phố đi bộ', 'dạo sông', 'biển cần thơ'
+    ].some((k) => fullText.includes(k));
+
+    if (isNightActivity) return 'NIGHT_ACTIVITY';
+
+    // 3. Điểm tâm / Cà phê sáng
+    const isBreakfast = [
+      'điểm tâm', 'bún', 'phở', 'bánh mì', 'hủ tiếu', 'cà phê sáng', 'cafe sáng'
+    ].some((k) => fullText.includes(k));
+
+    if (isBreakfast) return 'BREAKFAST';
+
+    // 4. Bữa ăn / Nhà hàng / Quán ăn / Hải sản
+    const isDinner = [
+      'nhà hàng', 'quán ăn', 'hải sản', 'lẩu', 'nướng', 'bữa ăn', 'ẩm thực', 'quán'
+    ].some((k) => fullText.includes(k));
+
+    if (isDinner) return 'DINNER';
+
+    return 'DAYTIME_ATTRACTION';
+  }
+
+  /**
+   * Sắp xếp danh sách địa điểm trong 1 ngày theo đúng thứ tự nhịp sinh hoạt thực tế:
+   * Sáng (Ăn sáng / Cà phê) -> Ban ngày (Tham quan Chùa / Thiền viện / Bảo tàng / Công viên) -> Bữa ăn (Trưa/Tối) -> Ban đêm (Vui chơi / Chợ đêm / Cà phê đêm)
+   */
+  sortDayPlacesByBiologicalSchedule(dayPlaces: any[], candidatePlacesMap: Map<number, any>): any[] {
+    if (dayPlaces.length <= 1) return dayPlaces;
+
+    const breakfasts: any[] = [];
+    const daytimeAttractions: any[] = [];
+    const dinners: any[] = [];
+    const nightActivities: any[] = [];
+
+    for (const item of dayPlaces) {
+      const placeObj = candidatePlacesMap.get(Number(item.placeId));
+      const bioType = this.getPlaceBiologicalCategory(placeObj);
+
+      if (bioType === 'BREAKFAST') {
+        breakfasts.push(item);
+      } else if (bioType === 'DAYTIME_ATTRACTION') {
+        daytimeAttractions.push(item);
+      } else if (bioType === 'DINNER') {
+        dinners.push(item);
+      } else if (bioType === 'NIGHT_ACTIVITY') {
+        nightActivities.push(item);
+      } else {
+        daytimeAttractions.push(item);
+      }
+    }
+
+    const sortedBreakfasts = this.optimizeDayRouteByDistance(breakfasts, candidatePlacesMap);
+    const sortedDaytime = this.optimizeDayRouteByDistance(daytimeAttractions, candidatePlacesMap);
+    const sortedDinners = this.optimizeDayRouteByDistance(dinners, candidatePlacesMap);
+    const sortedNight = this.optimizeDayRouteByDistance(nightActivities, candidatePlacesMap);
+
+    const result: any[] = [];
+    result.push(...sortedBreakfasts);
+
+    if (sortedDinners.length > 1 && sortedDaytime.length > 0) {
+      const lunchRestaurant = sortedDinners.shift();
+      const halfDaytime = Math.ceil(sortedDaytime.length / 2);
+
+      result.push(...sortedDaytime.slice(0, halfDaytime));
+      result.push(lunchRestaurant);
+      result.push(...sortedDaytime.slice(halfDaytime));
+      result.push(...sortedDinners);
+    } else {
+      result.push(...sortedDaytime);
+      result.push(...sortedDinners);
+    }
+
+    result.push(...sortedNight);
+
+    return result;
+  }
+
+  /**
    * Trích xuất thông minh từ khóa tên riêng & chủ đề từ văn bản sở thích người dùng
    */
   extractSearchKeywords(customRequest?: string): string[] {
@@ -239,6 +336,81 @@ export class RuleEngineService {
     }
 
     return Array.from(new Set(keywords));
+  }
+
+  /**
+   * Trích xuất các yêu cầu ràng buộc địa điểm theo ngày từ text sở thích của người dùng
+   * Ví dụ: "ghé thăm thiền viện trúc lâm phương nam ở ngày cuối cùng" => targetDay = totalDays
+   */
+  extractDayConstraints(customRequest?: string, totalDays: number = 1): Array<{ rawPlaceQuery: string; targetDay: number; dayLabel: string }> {
+    if (!customRequest || !customRequest.trim()) return [];
+    const text = customRequest.trim();
+    const constraints: Array<{ rawPlaceQuery: string; targetDay: number; dayLabel: string }> = [];
+
+    const parseDayNumber = (dayStr: string): number => {
+      const clean = dayStr.toLowerCase().trim();
+      if (clean.includes('cuối')) return totalDays;
+      if (clean.includes('đầu')) return 1;
+      const matchNum = clean.match(/\d+/);
+      if (matchNum) {
+        const num = parseInt(matchNum[0], 10);
+        if (num >= 1 && num <= totalDays) return num;
+        if (num > totalDays) return totalDays;
+      }
+      return 1;
+    };
+
+    const cleanPlaceQuery = (raw: string): string => {
+      return raw
+        .replace(/^(tôi muốn|tôi khá|tôi|mình|khách|ghé thăm|ghé|thăm|đi|trải nghiệm|viếng|tham quan|ăn|uống|ở|thử)\s+/i, '')
+        .replace(/\s+(ở|vào|trong|vào lúc|vào sáng|vào chiều|vào tối)$/i, '')
+        .trim();
+    };
+
+    const dayRegexStr = '(?:ngày cuối cùng|ngày cuối|hôm cuối|ngày đầu tiên|ngày đầu|hôm đầu|ngày thứ\\s*\\d+|ngày\\s*\\d+|hôm\\s*\\d+)';
+
+    // Mẫu 1: [hành động/địa điểm] ... [ở/vào/ngày] [ngày X/ngày cuối]
+    const pattern1 = new RegExp(
+      `(?:ghé thăm|đi|đến|trải nghiệm|viếng|tham quan|ghé|ăn|uống)?\\s*([^,.;!\\n]+?)\\s+(?:ở|vào|trong|vào lúc|vào sáng|vào chiều|vào tối)?\\s*(${dayRegexStr})`,
+      'gi',
+    );
+
+    // Mẫu 2: [ngày X/ngày cuối] ... [tên địa điểm]
+    const pattern2 = new RegExp(
+      `(${dayRegexStr})\\s*(?:thì|tôi muốn|muốn|đi|ghé|tham quan|viếng|trải nghiệm|ăn|uống)?\\s*([^,.;!\\n]+)`,
+      'gi',
+    );
+
+    let match: RegExpExecArray | null;
+    while ((match = pattern1.exec(text)) !== null) {
+      const rawPlace = cleanPlaceQuery(match[1]);
+      const dayStr = match[2];
+      const targetDay = parseDayNumber(dayStr);
+      if (rawPlace.length >= 3 && !['tôi', 'mình', 'khách', 'bạn'].includes(rawPlace.toLowerCase())) {
+        constraints.push({
+          rawPlaceQuery: rawPlace,
+          targetDay,
+          dayLabel: dayStr,
+        });
+      }
+    }
+
+    while ((match = pattern2.exec(text)) !== null) {
+      const dayStr = match[1];
+      const rawPlace = cleanPlaceQuery(match[2]);
+      const targetDay = parseDayNumber(dayStr);
+      if (rawPlace.length >= 3 && !['tôi', 'mình', 'khách', 'bạn'].includes(rawPlace.toLowerCase())) {
+        if (!constraints.some((c) => c.rawPlaceQuery.toLowerCase() === rawPlace.toLowerCase())) {
+          constraints.push({
+            rawPlaceQuery: rawPlace,
+            targetDay,
+            dayLabel: dayStr,
+          });
+        }
+      }
+    }
+
+    return constraints;
   }
 
   /**

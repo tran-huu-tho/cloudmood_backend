@@ -123,6 +123,12 @@ export class ItinerariesController {
     return this.itinerariesService.addDetail(body, req.user?.id?.toString());
   }
 
+  @Post(':id/bulk-details')
+  async addBulkDetails(@Request() req, @Param('id') id: string, @Body() body: any) {
+    const details = body.details || body;
+    return this.itinerariesService.addBulkDetails(+id, details, req.user?.id?.toString());
+  }
+
   @Put('details/:id')
   async updateDetail(@Request() req, @Param('id') id: string, @Body() body: any) {
     return this.itinerariesService.updateDetail(+id, body, req.user?.id?.toString());

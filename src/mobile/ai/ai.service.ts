@@ -1034,6 +1034,60 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // 4. Trích xuất & Giải mã Ràng buộc Địa điểm theo Ngày cụ thể (Day-Specific Place Constraints)
+    const rawDayConstraints = this.ruleEngine.extractDayConstraints(customRequest, days);
+    const resolvedDayConstraints: Array<{ place: any; targetDay: number; rawQuery: string; dayLabel: string }> = [];
+
+    for (const dc of rawDayConstraints) {
+      const matches = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          OR: [
+            { name: { contains: dc.rawPlaceQuery, mode: 'insensitive' } },
+            { description: { contains: dc.rawPlaceQuery, mode: 'insensitive' } },
+          ],
+        },
+        include: { category: true },
+        take: 5,
+      });
+
+      let matchedPlace = matches[0];
+      if (!matchedPlace && dc.rawPlaceQuery.includes(' ')) {
+        const subKws = dc.rawPlaceQuery.split(' ').filter((w) => w.length >= 3);
+        for (const skw of subKws) {
+          const subMatches = await this.prisma.place.findMany({
+            where: {
+              isApproved: true,
+              OR: [
+                { name: { contains: skw, mode: 'insensitive' } },
+                { description: { contains: skw, mode: 'insensitive' } },
+              ],
+            },
+            include: { category: true },
+            take: 3,
+          });
+          if (subMatches.length > 0) {
+            matchedPlace = subMatches[0];
+            break;
+          }
+        }
+      }
+
+      if (matchedPlace) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(matchedPlace.id))) candidatePlaces.push(matchedPlace);
+        if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(matchedPlace.id))) mustVisitPlaces.push(matchedPlace);
+        if (!specificNamedPlaces.some((sp) => Number(sp.id) === Number(matchedPlace.id))) specificNamedPlaces.push(matchedPlace);
+
+        resolvedDayConstraints.push({
+          place: matchedPlace,
+          targetDay: dc.targetDay,
+          rawQuery: dc.rawPlaceQuery,
+          dayLabel: dc.dayLabel,
+        });
+        this.logger.log(`[DAY CONSTRAINT DETECTED] "${matchedPlace.name}" (ID: ${matchedPlace.id}) => Target Day ${dc.targetDay} (${dc.dayLabel})`);
+      }
+    }
+
     // ─── STEP 1c: FILTER OUT VAGUE / GENERIC PLACE NAMES (e.g. "Cần Thơ") ────
     candidatePlaces = candidatePlaces.filter(
       (p) => !this.ruleEngine.isVagueOrInvalidPlaceName(p.name, cleanDest),
@@ -1128,6 +1182,7 @@ PHÂN TÍCH CHÂN DUNG CHUYẾN ĐI (USER CONTEXT):
   ${isBienDongRequested ? `-> BẮT BUỘC: Khách yêu cầu ăn ở Nhà Hàng Biển Đông! BẮT BUỘC chọn "Nhà Hàng Biển Đông" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Biển Đông'))?.id || 1185}) cho 1 bữa ăn trưa hoặc tối.` : ''}
   ${isNinhKieuRequested ? `-> BẮT BUỘC: Khách muốn đi Cầu/Bến Ninh Kiều buổi tối! BẮT BUỘC chọn "Cầu Đi Bộ Bến Ninh Kiều" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Ninh Kiều'))?.id || 1170}) vào BUỔI TỐI (19:00 - 22:00).` : ''}
   ${isChuaRequested ? `-> BẮT BUỘC: Khách muốn đi Chùa, hãy chọn 1-2 ngôi Chùa trong danh sách: ${chuaPlaces.map((c) => `${c.name} (ID: ${c.id})`).join(', ')}. KHÔNG ĐƯỢC XẾP NỀN NỀN CÁC NGÔI CHÙA LIÊN TIẾP CÙNG 1 BUỔI SÁNG.` : ''}
+  ${resolvedDayConstraints.map((c) => `-> BẮT BUỘC THEO YÊU CẦU ĐẶC BIỆT CỦA KHÁCH: Địa điểm "${c.place.name}" (ID: ${c.place.id}) BẮT BUỘC PHẢI ĐƯỢC XẾP VÀO NGÀY ${c.targetDay} (theo đúng yêu cầu "${c.rawQuery} ${c.dayLabel}"). TUYỆT ĐỐI KHÔNG XẾP SANG NGÀY KHÁC!`).join('\n')}
 
 QUY TẮC BẮT BUỘC VỀ NHỊP SINH HOẠT HẰNG NGÀY ("ĂN UỐNG - VUI CHƠI - NGHỈ NGƠI"):
 1. TUYỆT ĐỐI KHÔNG XẾP 2 HOẶC 3 ĐỊA ĐIỂM THAM QUAN / CHÙA LIÊN TIẾP TRONG NỬA NGÀY TỪ 07:00 ĐẾN 13:00!
@@ -1377,11 +1432,43 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
       }
     }
 
-    // ─── STEP 9: GEOGRAPHIC NEAREST-NEIGHBOR ROUTE OPTIMIZER ────────────
+    // 8d. Tự động áp đặt Ràng buộc Ngày chỉ định (Day Constraint Safety Net) nếu AI trót xếp sai ngày hoặc bỏ sót
+    for (const constraint of resolvedDayConstraints) {
+      const { place, targetDay } = constraint;
+      const targetDayObj = validatedDays.find((d: any) => d.dayNumber === targetDay);
+      if (!targetDayObj) continue;
+
+      const isAlreadyInTargetDay = targetDayObj.places.some(
+        (p: any) => Number(p.placeId) === Number(place.id),
+      );
+
+      if (!isAlreadyInTargetDay) {
+        // Xóa địa điểm khỏi bất kỳ ngày nào khác nếu AI trót xếp nhầm
+        for (const d of validatedDays) {
+          if (d.dayNumber !== targetDay) {
+            d.places = d.places.filter(
+              (p: any) => Number(p.placeId) !== Number(place.id),
+            );
+          }
+        }
+
+        // Chèn địa điểm vào đúng Ngày yêu cầu
+        targetDayObj.places.push({
+          placeId: Number(place.id),
+          note: `Ghé thăm ${place.name} vào Ngày ${targetDay} theo đúng mong muốn và yêu cầu sở thích của bạn.`,
+        });
+
+        this.logger.log(
+          `[DAY CONSTRAINT SAFETY NET] Enforced ${place.name} (ID: ${place.id}) into Day ${targetDay}.`,
+        );
+      }
+    }
+
+    // ─── STEP 9: BIOLOGICAL & GEOGRAPHIC ROUTE OPTIMIZER ────────────
     const candidatePlacesMap = new Map<number, any>(candidatePlaces.map((cp) => [Number(cp.id), cp]));
 
     const finalOptimizedDays = validatedDays.map((d) => {
-      const sortedPlaces = this.ruleEngine.optimizeDayRouteByDistance(d.places, candidatePlacesMap);
+      const sortedPlaces = this.ruleEngine.sortDayPlacesByBiologicalSchedule(d.places, candidatePlacesMap);
       return {
         ...d,
         places: sortedPlaces,
