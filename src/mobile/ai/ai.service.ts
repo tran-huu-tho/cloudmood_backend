@@ -1185,15 +1185,16 @@ PHÂN TÍCH CHÂN DUNG CHUYẾN ĐI (USER CONTEXT):
   ${resolvedDayConstraints.map((c) => `-> BẮT BUỘC THEO YÊU CẦU ĐẶC BIỆT CỦA KHÁCH: Địa điểm "${c.place.name}" (ID: ${c.place.id}) BẮT BUỘC PHẢI ĐƯỢC XẾP VÀO NGÀY ${c.targetDay} (theo đúng yêu cầu "${c.rawQuery} ${c.dayLabel}"). TUYỆT ĐỐI KHÔNG XẾP SANG NGÀY KHÁC!`).join('\n')}
 
 QUY TẮC BẮT BUỘC VỀ NHỊP SINH HOẠT HẰNG NGÀY ("ĂN UỐNG - VUI CHƠI - NGHỈ NGƠI"):
-1. TUYỆT ĐỐI KHÔNG XẾP 2 HOẶC 3 ĐỊA ĐIỂM THAM QUAN / CHÙA LIÊN TIẾP TRONG NỬA NGÀY TỪ 07:00 ĐẾN 13:00!
-2. TIẾN TRÌNH XEN KẼ SINH HỌC CHUẨN MỖI NGÀY:
-   - 07:00 - 08:30: BẮT BUỘC Ăn sáng / Cà phê sáng (Quán ăn / Cà phê).
-   - 08:30 - 11:30: Tham quan 1 địa điểm chính (Chùa 1 / Bảo tàng / Điểm du lịch).
-   - 11:30 - 13:30: BẮT BUỘC Ăn trưa & Nghỉ trưa (Nhà hàng / Quán ăn).
-   - 13:30 - 14:30: Cà phê chiều hoặc Check-in Khách sạn (Ngày 1).
-   - 14:30 - 17:30: Tham quan 1 địa điểm thứ 2 (Chùa 2 / Công viên / Điểm du lịch).
-   - 17:30 - 20:00: BẮT BUỘC Ăn tối (Nhà Hàng Biển Đông / Quán ăn / Lẩu / Hải sản).
-   - 20:00 - 22:00: Vui chơi & Dạo phố đêm (Cầu Ninh Kiều / Chợ đêm / Cà phê view sông).
+1. RÀNG BUỘC CỐ ĐỊNH TỐI CAO (CẤM ĐỊA ĐIỂM CÙNG THUỘC TÍNH LIÊN TIẾP):
+   TUYỆT ĐỐI CẤM XẾP 2 ĐỊA ĐIỂM CÓ CÙNG THUỘC TÍNH / LOẠI HÌNH LIÊN TIẾP NHAU!
+   (CẤM 2 khách sạn liên tiếp, CẤM 2 quán cà phê liên tiếp, CẤM 2 điểm tham quan/chùa/bảo tàng liên tiếp, CẤM 2 nhà hàng/quán ăn liên tiếp). Mỗi địa điểm xếp kế tiếp BẮT BUỘC phải khác loại hình.
+2. KHUNG GIỜ CHUẨN CỐ ĐỊNH CHO MỖI NGÀY (6 CỮ TÍNH NĂNG):
+   - 07:00 - 08:30: Ăn sáng & Cà phê (Quán điểm tâm / Cà phê sáng).
+   - 09:30 - 11:00: Tham quan chính (Điểm du lịch / Chùa / Bảo tàng).
+   - 11:30 - 12:30: Ăn trưa & Nghỉ ngơi (Nhà hàng / Quán ăn).
+   - 13:30 - 15:00: Vui chơi & Tham quan trưa (Check-in Khách sạn nếu là Ngày 1).
+   - 16:00 - 17:30: Ăn chiều hoặc tối (Nhà hàng hải sản / Quán ăn tối).
+   - 18:30 - 22:00: Tham quan & Vui chơi buổi tối (Bến Ninh Kiều / Chợ đêm / Dạo phố).
 3. QUY TẮC ĐỊA ĐIỂM XA NGOẠI Ô & NGÀY CUỐI (OUTLIER HALF-DAY TOUR):
    - Nếu khách yêu cầu đi địa điểm xa hoặc gõ "ngày cuối", "trước khi về": BẮT BUỘC xếp địa điểm xa đó vào SÁNG NGÀY CUỐI CÙNG (Chặng Ngoại Ô Nửa Ngày).
    - Chọn 1 quán ăn/cà phê địa phương nằm gần sát địa điểm xa đó (< 3km) để khách dừng chân dùng bữa trưa miệt vườn.
@@ -1333,14 +1334,15 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
         const p1 = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[i].placeId));
         const p2 = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[i + 1].placeId));
 
-        const isP1Activity = p1 && !['nhà hàng', 'quán ăn', 'cà phê', 'ẩm thực', 'khách sạn'].some((k) => (p1.category?.name || '').toLowerCase().includes(k));
-        const isP2Activity = p2 && !['nhà hàng', 'quán ăn', 'cà phê', 'ẩm thực', 'khách sạn'].some((k) => (p2.category?.name || '').toLowerCase().includes(k));
+        const cat1 = this.ruleEngine.getGeneralCategoryGroup(p1);
+        const cat2 = this.ruleEngine.getGeneralCategoryGroup(p2);
 
-        if (isP1Activity && isP2Activity) {
+        // 3a. Nếu 2 điểm tham quan liên tiếp ➔ Chèn 1 quán ăn/cà phê vào giữa
+        if (cat1 === 'ATTRACTION' && cat2 === 'ATTRACTION') {
           const unusedFood = candidatePlaces.find(
             (cp) =>
               !usedIdSet.has(Number(cp.id)) &&
-              ['nhà hàng', 'quán ăn', 'cà phê', 'ẩm thực'].some((k) => (cp.category?.name || '').toLowerCase().includes(k)),
+              ['DINING', 'CAFE'].includes(this.ruleEngine.getGeneralCategoryGroup(cp)),
           );
 
           if (unusedFood) {
@@ -1350,7 +1352,25 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
               placeId: pid,
               note: `Nghỉ chân và dùng bữa tại ${unusedFood.name} giữa các điểm tham quan.`,
             });
-            break;
+            i++;
+          }
+        }
+        // 3b. Nếu 2 điểm Ăn uống / Quán ăn / Nhà hàng (DINING) liên tiếp ➔ Chèn 1 điểm tham quan vào giữa
+        else if (cat1 === 'DINING' && cat2 === 'DINING') {
+          const unusedAttraction = candidatePlaces.find(
+            (cp) =>
+              !usedIdSet.has(Number(cp.id)) &&
+              this.ruleEngine.getGeneralCategoryGroup(cp) === 'ATTRACTION',
+          );
+
+          if (unusedAttraction) {
+            const pid = Number(unusedAttraction.id);
+            usedIdSet.add(pid);
+            day.places.splice(i + 1, 0, {
+              placeId: pid,
+              note: `Tham quan ${unusedAttraction.name} để giải trí giữa các bữa ăn.`,
+            });
+            i++;
           }
         }
       }
@@ -1467,11 +1487,28 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
     // ─── STEP 9: BIOLOGICAL & GEOGRAPHIC ROUTE OPTIMIZER ────────────
     const candidatePlacesMap = new Map<number, any>(candidatePlaces.map((cp) => [Number(cp.id), cp]));
 
+    const defaultTimeSlots = [
+      { startTime: '07:00', endTime: '08:30' },
+      { startTime: '09:30', endTime: '11:00' },
+      { startTime: '11:30', endTime: '12:30' },
+      { startTime: '13:30', endTime: '15:00' },
+      { startTime: '16:00', endTime: '17:30' },
+      { startTime: '18:30', endTime: '22:00' },
+    ];
+
     const finalOptimizedDays = validatedDays.map((d) => {
-      const sortedPlaces = this.ruleEngine.sortDayPlacesByBiologicalSchedule(d.places, candidatePlacesMap);
+      const sortedPlaces = this.ruleEngine.sortDayPlacesByBiologicalSchedule(d.places, candidatePlacesMap, d.dayNumber);
+      const placesWithTime = sortedPlaces.map((p: any, idx: number) => {
+        const slot = defaultTimeSlots[idx % defaultTimeSlots.length];
+        return {
+          ...p,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+        };
+      });
       return {
         ...d,
-        places: sortedPlaces,
+        places: placesWithTime,
       };
     });
 
