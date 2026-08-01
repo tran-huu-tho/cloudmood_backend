@@ -4,13 +4,40 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../shared/prisma/prisma.service';
+import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
 import * as bcrypt from 'bcrypt';
 import * as fs from 'fs';
 import * as path from 'path';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cloudinaryService: CloudinaryService,
+  ) {}
+
+  async uploadImageToCloudinary(
+    imageStr: string | null | undefined,
+    folder = 'cloudmood_places',
+  ): Promise<string> {
+    if (!imageStr) return '';
+    if (
+      typeof imageStr === 'string' &&
+      (imageStr.startsWith('data:image/') || imageStr.startsWith('data:application/'))
+    ) {
+      try {
+        const uploadRes = await this.cloudinaryService.uploadBase64Image(
+          imageStr,
+          folder,
+        );
+        return uploadRes.secure_url || uploadRes.url || imageStr;
+      } catch (err) {
+        console.error(`[AdminService] Lỗi upload ảnh lên Cloudinary (${folder}):`, err);
+        throw new BadRequestException('Lỗi khi tải ảnh lên Cloudinary. Vui lòng thử lại.');
+      }
+    }
+    return imageStr;
+  }
 
   // 1. Dashboard & Statistics
   async getDashboardStats() {
@@ -768,7 +795,12 @@ export class AdminService {
       );
     }
 
-    return this.prisma.place.create({
+    let image = data.image || '';
+    if (typeof image === 'string' && image.startsWith('data:image/')) {
+      image = await this.uploadImageToCloudinary(image, 'cloudmood_places');
+    }
+
+    const createdPlace = await this.prisma.place.create({
       data: {
         name: data.name,
         description: data.description || '',
@@ -777,10 +809,10 @@ export class AdminService {
         address: data.address || '',
         price: data.price || 'Miễn phí',
         categoryId: BigInt(data.categoryId),
-        image: data.image || '',
-        rating: data.rating !== undefined ? parseFloat(data.rating) : null,
+        image,
+        rating: data.rating !== undefined && data.rating !== null ? parseFloat(data.rating) : null,
         userRatingCount:
-          data.userRatingCount !== undefined
+          data.userRatingCount !== undefined && data.userRatingCount !== null
             ? parseInt(data.userRatingCount)
             : null,
         phone: data.phone || null,
@@ -792,6 +824,44 @@ export class AdminService {
         externalId: data.externalId || null,
       },
     });
+
+    if (Array.isArray(data.photos) && data.photos.length > 0) {
+      for (const ph of data.photos) {
+        const urlOrig = typeof ph === 'string' ? ph : ph.urlOriginal || ph.url || '';
+        if (urlOrig) {
+          await this.prisma.placePhoto.create({
+            data: {
+              placeId: createdPlace.id,
+              urlOriginal: urlOrig,
+              urlThumbnail: typeof ph === 'object' ? ph.urlThumbnail || null : null,
+              caption: typeof ph === 'object' ? ph.caption || null : null,
+              source: typeof ph === 'object' ? ph.source || 'LOCAL' : 'LOCAL',
+            },
+          });
+        }
+      }
+    }
+
+    if (Array.isArray(data.reviews) && data.reviews.length > 0) {
+      for (const rv of data.reviews) {
+        if (rv.authorName || rv.comment) {
+          await this.prisma.review.create({
+            data: {
+              placeId: createdPlace.id,
+              authorName: rv.authorName || 'Người dùng TripAdvisor',
+              authorAvatar: rv.authorAvatar || null,
+              authorLocation: rv.authorLocation || null,
+              rating: parseFloat(rv.rating) || 5,
+              comment: rv.comment || '',
+              publishedDate: rv.publishedDate ? new Date(rv.publishedDate) : new Date(),
+              source: rv.source || 'TRIPADVISOR',
+            },
+          });
+        }
+      }
+    }
+
+    return createdPlace;
   }
 
   async updatePlace(id: string, data: any) {
@@ -805,26 +875,7 @@ export class AdminService {
 
     let image = data.image !== undefined ? data.image : place.image;
     if (typeof image === 'string' && image.startsWith('data:image/')) {
-      try {
-        const matches = image.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
-        if (matches && matches.length === 3) {
-          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-          const base64Data = matches[2];
-          const fileName = `thumb-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-
-          const webPublicUploads = path.join(process.cwd(), '../cloudmood_web/public/uploads/places');
-          if (!fs.existsSync(webPublicUploads)) {
-            fs.mkdirSync(webPublicUploads, { recursive: true });
-          }
-
-          const filePath = path.join(webPublicUploads, fileName);
-          fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
-
-          image = `/uploads/places/${fileName}`;
-        }
-      } catch (err) {
-        console.error('Failed to save thumbnail image to file system:', err);
-      }
+      image = await this.uploadImageToCloudinary(image, 'cloudmood_places');
     }
 
     return this.prisma.place.update({
@@ -881,6 +932,10 @@ export class AdminService {
         isApproved:
           data.isApproved !== undefined
             ? data.isApproved === true || data.isApproved === 'true'
+              ? true
+              : data.isApproved === false || data.isApproved === 'false'
+              ? false
+              : null
             : place.isApproved,
         lastSyncedAt: new Date(),
       },
@@ -907,7 +962,7 @@ export class AdminService {
     });
   }
 
-  // 5. Photos Management (Automatic File Saver for Base64)
+  // 5. Photos Management (Cloudinary Uploader for Base64)
   async addPlacePhoto(placeId: string, data: any) {
     if (!data.urlOriginal) {
       throw new BadRequestException('Đường dẫn ảnh gốc không được để trống.');
@@ -916,29 +971,10 @@ export class AdminService {
     let urlOriginal = data.urlOriginal;
     let urlThumbnail = data.urlThumbnail || null;
 
-    // Handle Base64 Upload
+    // Handle Base64 Upload -> Upload to Cloudinary
     if (typeof urlOriginal === 'string' && urlOriginal.startsWith('data:image/')) {
-      try {
-        const matches = urlOriginal.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
-        if (matches && matches.length === 3) {
-          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-          const base64Data = matches[2];
-          const fileName = `photo-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-
-          const webPublicUploads = path.join(process.cwd(), '../cloudmood_web/public/uploads/photos');
-          if (!fs.existsSync(webPublicUploads)) {
-            fs.mkdirSync(webPublicUploads, { recursive: true });
-          }
-
-          const filePath = path.join(webPublicUploads, fileName);
-          fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
-
-          urlOriginal = `/uploads/photos/${fileName}`;
-          urlThumbnail = null;
-        }
-      } catch (err) {
-        console.error('Failed to save base64 photo to file system:', err);
-      }
+      urlOriginal = await this.uploadImageToCloudinary(urlOriginal, 'cloudmood_photos');
+      urlThumbnail = null;
     }
 
     const created = await this.prisma.placePhoto.create({
@@ -966,9 +1002,10 @@ export class AdminService {
   }
 
   async addPlaceReview(placeId: string, data: any) {
+    const pId = BigInt(placeId);
     const created = await this.prisma.review.create({
       data: {
-        placeId: BigInt(placeId),
+        placeId: pId,
         rating: parseFloat(data.rating),
         comment: data.comment,
         authorName: data.authorName,
@@ -984,6 +1021,21 @@ export class AdminService {
     return this.serializeBigInt(created);
   }
 
+  // Helper to normalize price level
+  private normalizePriceLevel(val: any): string {
+    if (!val) return 'MODERATE';
+    const str = String(val).trim().toUpperCase();
+    if (['FREE', '$', 'MODERATE', '$$ - $$$$', '$$$$'].includes(str)) {
+      return str;
+    }
+    if (str === 'INEXPENSIVE' || str === 'CHEAP' || str === '1') return '$';
+    if (str === '2' || str === '$$') return 'MODERATE';
+    if (str === '$$ - $$$' || str === '$$ - $$$$') return '$$ - $$$$';
+    if (str === 'EXPENSIVE' || str === 'VERY_EXPENSIVE' || str === 'VERY_EXP' || str === '3' || str === '4' || str === '$$$') return '$$$$';
+    if (str.includes('FREE') || str.includes('MIỄN PHÍ')) return 'FREE';
+    return 'MODERATE';
+  }
+
   // 6. Bulk Import
   async importPlaces(places: any[]) {
     if (!Array.isArray(places) || places.length === 0) {
@@ -994,23 +1046,25 @@ export class AdminService {
     for (const item of places) {
       if (!item.name || !item.categoryId) continue;
 
+      const normalizedPriceLevel = this.normalizePriceLevel(item.priceLevel);
+
       const placeData = {
         name: item.name,
         description: item.description || '',
         latitude: parseFloat(item.latitude) || 0,
         longitude: parseFloat(item.longitude) || 0,
         address: item.address || '',
-        price: item.price || 'Miễn phí',
+        price: item.price || '',
         categoryId: BigInt(item.categoryId),
         image: item.image || '',
-        rating: item.rating !== undefined ? parseFloat(item.rating) : null,
+        rating: item.rating !== undefined && item.rating !== null ? parseFloat(item.rating) : null,
         userRatingCount:
-          item.userRatingCount !== undefined
+          item.userRatingCount !== undefined && item.userRatingCount !== null
             ? parseInt(item.userRatingCount)
             : null,
         phone: item.phone || null,
         website: item.website || null,
-        priceLevel: item.priceLevel || null,
+        priceLevel: normalizedPriceLevel,
         tripadvisorUrl: item.tripadvisorUrl || null,
         openingHours: item.openingHours || {},
         subCategories: item.subCategories || [],
@@ -1023,6 +1077,58 @@ export class AdminService {
           update: placeData,
           create: placeData,
         });
+
+        // Import photos if provided
+        if (Array.isArray(item.photos) && item.photos.length > 0) {
+          for (const photo of item.photos) {
+            let urlOriginal = '';
+            let urlThumbnail = '';
+            let caption: string | null = null;
+
+            if (typeof photo === 'string') {
+              urlOriginal = photo;
+              urlThumbnail = photo;
+            } else if (typeof photo === 'object' && photo !== null) {
+              urlOriginal = photo.urlOriginal || photo.url || photo.src || '';
+              urlThumbnail = photo.urlThumbnail || photo.urlOriginal || photo.url || photo.src || '';
+              caption = photo.caption || null;
+            }
+
+            if (urlOriginal) {
+              await this.prisma.placePhoto.create({
+                data: {
+                  placeId: place.id,
+                  urlOriginal,
+                  urlThumbnail,
+                  caption,
+                  source: 'LOCAL',
+                },
+              });
+            }
+          }
+        }
+
+        // Import reviews if provided
+        if (Array.isArray(item.reviews) && item.reviews.length > 0) {
+          for (const review of item.reviews) {
+            if (typeof review === 'object' && review !== null && (review.comment || review.rating)) {
+              const authorName = review.authorName || review.author || 'Người dùng';
+              await this.prisma.review.create({
+                data: {
+                  placeId: place.id,
+                  authorName,
+                  authorAvatar: review.authorAvatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(authorName)}`,
+                  authorLocation: review.authorLocation || null,
+                  rating: review.rating !== undefined && review.rating !== null ? parseFloat(review.rating) : 5,
+                  comment: review.comment || '',
+                  source: 'LOCAL',
+                  publishedDate: review.publishedDate ? new Date(review.publishedDate) : new Date(),
+                },
+              });
+            }
+          }
+        }
+
         createdPlaces.push(place);
       } catch (err) {
         console.error(`Failed to import place ${item.name}:`, err.message);

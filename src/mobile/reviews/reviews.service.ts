@@ -25,17 +25,19 @@ export class ReviewsService {
   }
 
   async createPublic(data: any) {
+    const placeId = BigInt(data.placeId);
     const created = await this.prisma.review.create({
       data: {
         rating: parseFloat(data.rating) || 5,
         comment: data.comment || '',
-        placeId: BigInt(data.placeId),
+        placeId,
         authorName: data.authorName || 'Người dùng CloudMood',
         authorAvatar: data.authorAvatar || null,
         publishedDate: new Date(),
         source: 'LOCAL',
       },
     });
+
     return {
       ...created,
       id: created.id.toString(),
@@ -44,8 +46,9 @@ export class ReviewsService {
   }
 
   async delete(id: string) {
-    return this.prisma.review.delete({
-      where: { id: BigInt(id) },
+    const reviewId = BigInt(id);
+    const deleted = await this.prisma.review.delete({
+      where: { id: reviewId },
       select: {
         id: true,
         rating: true,
@@ -59,6 +62,8 @@ export class ReviewsService {
         source: true,
       },
     });
+
+    return deleted;
   }
 
   async findByPlace(placeId: string) {

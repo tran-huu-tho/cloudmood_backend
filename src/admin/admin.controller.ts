@@ -10,6 +10,7 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
+  BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -255,4 +256,18 @@ export class AdminController {
   async clearAllWeatherCache() {
     return this.adminService.clearAllWeatherCache();
   }
+
+  // 8. Image Upload to Cloudinary
+  @Post('upload')
+  async uploadImage(@Body() body: { image: string; folder?: string }) {
+    if (!body?.image) {
+      throw new BadRequestException('Dữ liệu hình ảnh không được để trống.');
+    }
+    const url = await this.adminService.uploadImageToCloudinary(
+      body.image,
+      body.folder || 'cloudmood_places',
+    );
+    return { url };
+  }
 }
+
