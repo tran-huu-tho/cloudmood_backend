@@ -352,13 +352,26 @@ export class AdminService {
     const coverImage =
       body?.coverImage || itinerary.coverImage || '/logo-xoanen-cloudmood.png';
 
+    let authorId = itinerary.userId;
+    if (!authorId) {
+      const defaultAdmin = await this.prisma.user.findFirst({
+        where: { role: true },
+        orderBy: { id: 'asc' },
+      }) || await this.prisma.user.findFirst({
+        orderBy: { id: 'asc' },
+      });
+      if (defaultAdmin) {
+        authorId = defaultAdmin.id;
+      }
+    }
+
     const post = await this.prisma.explorePost.create({
       data: {
         title,
         description,
         coverImage,
         postType: 'GUIDE',
-        authorId: itinerary.userId,
+        authorId: authorId,
         originalItineraryId: itinerary.id,
         destination: itinerary.destination,
         status: 'PUBLISHED',
@@ -383,7 +396,7 @@ export class AdminService {
   }
   // 1b. Explore Posts / Blog Management
   async getExplorePosts() {
-    return this.prisma.explorePost.findMany({
+    const posts = await this.prisma.explorePost.findMany({
       orderBy: { id: 'desc' },
       include: {
         author: {
@@ -415,11 +428,48 @@ export class AdminService {
         },
       },
     });
+
+    const defaultAdmin = await this.prisma.user.findFirst({
+      where: { role: true },
+      select: { id: true, fullName: true, email: true, avatar: true },
+      orderBy: { id: 'asc' },
+    }) || await this.prisma.user.findFirst({
+      select: { id: true, fullName: true, email: true, avatar: true },
+      orderBy: { id: 'asc' },
+    });
+
+    return posts.map(post => ({
+      ...post,
+      author: post.author || (defaultAdmin ? {
+        id: defaultAdmin.id.toString(),
+        fullName: defaultAdmin.fullName || 'Biên tập viên Admin',
+        email: defaultAdmin.email || 'admin@cloudmood.com',
+        avatar: defaultAdmin.avatar || null,
+      } : {
+        id: '1',
+        fullName: 'Biên tập viên Admin',
+        email: 'admin@cloudmood.com',
+        avatar: null,
+      }),
+    }));
   }
 
   async createExplorePost(data: any) {
     if (!data.title) {
       throw new BadRequestException('Tiêu đề bài viết không được để trống.');
+    }
+
+    let authorId = data.authorId ? BigInt(data.authorId) : null;
+    if (!authorId) {
+      const defaultAdmin = await this.prisma.user.findFirst({
+        where: { role: true },
+        orderBy: { id: 'asc' },
+      }) || await this.prisma.user.findFirst({
+        orderBy: { id: 'asc' },
+      });
+      if (defaultAdmin) {
+        authorId = defaultAdmin.id;
+      }
     }
 
     const post = await this.prisma.explorePost.create({
@@ -430,7 +480,7 @@ export class AdminService {
         postType: data.postType || 'BLOG',
         destination: data.destination || '',
         status: data.status || 'PUBLISHED',
-        authorId: data.authorId ? BigInt(data.authorId) : null,
+        authorId: authorId,
       },
     });
 
