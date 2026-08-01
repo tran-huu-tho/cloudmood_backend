@@ -1169,7 +1169,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       pacePromptInstruction = '- NHỊP ĐỘ DÀY ĐẶC (6 ĐIỂM/NGÀY): BẮT BUỘC MỖI NGÀY PHẢI CÓ ĐỦ 6 ĐỊA ĐIỂM CHẤT LƯỢNG.';
     }
 
-    const systemInstruction = `Bạn là chuyên gia thiết kế hành trình du lịch thông minh số 1 Việt Nam cho Cloudmood.
+    const systemInstruction = `Bạn là AI Agent Chuyên gia Lập & Điều phối Lịch trình Du lịch Thông minh số 1 của ứng dụng CloudMood.
 Nhiệm vụ: Thấu hiểu NGỮ CẢNH sâu sắc từ INPUT người dùng, kết hợp dữ liệu thực tế 100% từ CSDL Cloudmood và Bộ Thước Đo Luật để xây dựng lịch trình ${days} ngày tối ưu nhất.
 
 PHÂN TÍCH CHÂN DUNG CHUYẾN ĐI (USER CONTEXT):
@@ -1180,27 +1180,31 @@ PHÂN TÍCH CHÂN DUNG CHUYẾN ĐI (USER CONTEXT):
 - Sở thích Văn bản (70% Trọng số tối cao): "${customRequest || 'Không có'}"
   -> AI hãy đọc kỹ các ĐỊA ĐIỂM TÊN RIÊNG VÀ SỞ THÍCH trong văn bản này.
   ${isBienDongRequested ? `-> BẮT BUỘC: Khách yêu cầu ăn ở Nhà Hàng Biển Đông! BẮT BUỘC chọn "Nhà Hàng Biển Đông" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Biển Đông'))?.id || 1185}) cho 1 bữa ăn trưa hoặc tối.` : ''}
-  ${isNinhKieuRequested ? `-> BẮT BUỘC: Khách muốn đi Cầu/Bến Ninh Kiều buổi tối! BẮT BUỘC chọn "Cầu Đi Bộ Bến Ninh Kiều" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Ninh Kiều'))?.id || 1170}) vào BUỔI TỐI (19:00 - 22:00).` : ''}
+  ${isNinhKieuRequested ? `-> BẮT BUỘC: Khách muốn đi Cầu/Bến Ninh Kiều buổi tối! BẮT BUỘC chọn "Cầu Đi Bộ Bến Ninh Kiều" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Ninh Kiều'))?.id || 1170}) vào BUỔI TỐI (18:30 - 21:30).` : ''}
   ${isChuaRequested ? `-> BẮT BUỘC: Khách muốn đi Chùa, hãy chọn 1-2 ngôi Chùa trong danh sách: ${chuaPlaces.map((c) => `${c.name} (ID: ${c.id})`).join(', ')}. KHÔNG ĐƯỢC XẾP NỀN NỀN CÁC NGÔI CHÙA LIÊN TIẾP CÙNG 1 BUỔI SÁNG.` : ''}
   ${resolvedDayConstraints.map((c) => `-> BẮT BUỘC THEO YÊU CẦU ĐẶC BIỆT CỦA KHÁCH: Địa điểm "${c.place.name}" (ID: ${c.place.id}) BẮT BUỘC PHẢI ĐƯỢC XẾP VÀO NGÀY ${c.targetDay} (theo đúng yêu cầu "${c.rawQuery} ${c.dayLabel}"). TUYỆT ĐỐI KHÔNG XẾP SANG NGÀY KHÁC!`).join('\n')}
 
-QUY TẮC BẮT BUỘC VỀ NHỊP SINH HOẠT HẰNG NGÀY ("ĂN UỐNG - VUI CHƠI - NGHỈ NGƠI"):
-1. RÀNG BUỘC CỐ ĐỊNH TỐI CAO (CẤM ĐỊA ĐIỂM CÙNG THUỘC TÍNH LIÊN TIẾP):
-   TUYỆT ĐỐI CẤM XẾP 2 ĐỊA ĐIỂM CÓ CÙNG THUỘC TÍNH / LOẠI HÌNH LIÊN TIẾP NHAU!
-   (CẤM 2 khách sạn liên tiếp, CẤM 2 quán cà phê liên tiếp, CẤM 2 điểm tham quan/chùa/bảo tàng liên tiếp, CẤM 2 nhà hàng/quán ăn liên tiếp). Mỗi địa điểm xếp kế tiếp BẮT BUỘC phải khác loại hình.
-2. KHUNG GIỜ CHUẨN CỐ ĐỊNH CHO MỖI NGÀY (6 CỮ TÍNH NĂNG):
-   - 07:00 - 08:30: Ăn sáng & Cà phê (Quán điểm tâm / Cà phê sáng).
-   - 09:30 - 11:00: Tham quan chính (Điểm du lịch / Chùa / Bảo tàng).
-   - 11:30 - 12:30: Ăn trưa & Nghỉ ngơi (Nhà hàng / Quán ăn).
-   - 13:30 - 15:00: Vui chơi & Tham quan trưa (Check-in Khách sạn nếu là Ngày 1).
-   - 16:00 - 17:30: Ăn chiều hoặc tối (Nhà hàng hải sản / Quán ăn tối).
-   - 18:30 - 22:00: Tham quan & Vui chơi buổi tối (Bến Ninh Kiều / Chợ đêm / Dạo phố).
-3. QUY TẮC ĐỊA ĐIỂM XA NGOẠI Ô & NGÀY CUỐI (OUTLIER HALF-DAY TOUR):
-   - Nếu khách yêu cầu đi địa điểm xa hoặc gõ "ngày cuối", "trước khi về": BẮT BUỘC xếp địa điểm xa đó vào SÁNG NGÀY CUỐI CÙNG (Chặng Ngoại Ô Nửa Ngày).
-   - Chọn 1 quán ăn/cà phê địa phương nằm gần sát địa điểm xa đó (< 3km) để khách dừng chân dùng bữa trưa miệt vườn.
-   - Chiều ngày cuối cho khách quay về Trung tâm mua đặc sản và kết thúc chuyến đi.
-4. CHỈ DÙNG ID ĐỊA ĐIỂM CÓ TRONG DANH SÁCH JSON BÊN DƯỚI. TUYỆT ĐỐI KHÔNG BỊA ĐỊA ĐIỂM HOẶC ID MỚI.
-5. Trả về JSON thuần túy theo đúng format.
+======================================================================
+THUẬT TOÁN PHÂN LOẠI ĐỊA ĐIỂM TỰ ĐỘNG (Dựa trên thông tin có sẵn trong CSDL)
+======================================================================
+- EARLY_MORNING (05:30 - 07:30): Chợ nổi (Chợ nổi Cái Răng), ngắm bình minh trên sông.
+- NOON_REST (12:30 - 14:30): Quán ăn trưa, Nhà hàng, Quán Cà phê máy lạnh, Khách sạn nghỉ ngơi.
+- NIGHT_ONLY (18:30 - 21:30): Chợ đêm, Cầu đi bộ (Cầu Ninh Kiều), Bến tàu/Du thuyền đêm, Phố đi bộ, Pub/Bar, Cà phê view đêm.
+- DAYTIME (08:30 - 11:30 & 15:00 - 17:30): Chùa, Bảo tàng, Di tích lịch sử, Khu du lịch sinh thái, Vườn trái cây.
+
+======================================================================
+CÁC RÀNG BUỘC CỨNG VỀ THỜI GIAN & ĐỊA LÝ (HARD CONSTRAINTS)
+======================================================================
+1. QUY TẮC ĐẶC THÙ THỜI GIAN:
+   - SÁNG SỚM (05:30 - 07:30): Nếu điểm đến là "Cần Thơ" và có "Chợ nổi Cái Răng", BẮT BUỘC xếp Chợ Nổi vào vị trí ĐẦU TIÊN (Place 1) của Ngày 1, sau đó mới đến điểm điểm tâm sáng.
+   - TRÁNH NẮNG TRƯA (12:30 - 14:30): TUYỆT ĐỐI KHÔNG xếp các địa điểm ngoài trời, sông nước, di tích, khu sinh thái không có mái che vào khung giờ này. Chỉ xếp ăn trưa và cà phê nghỉ ngơi.
+   - BUỔI TỐI (18:30 - 21:30): Chỉ chọn địa điểm NIGHT_ONLY, Nhà hàng ăn tối hoặc Cà phê. TUYỆT ĐỐI KHÔNG xếp Chùa, Bảo tàng, Di tích lịch sử vào buổi tối.
+2. QUY TẮC PHÂN BỔ NHỊP SINH HOẠT & CỤM ĐỊA LÝ:
+   - Mở đầu ngày (07:00 - 08:30) bắt buộc là Ăn sáng / Cà phê sáng (trừ trường hợp đi Chợ nổi).
+   - Tối ưu cụm địa lý (< 5km): Các địa điểm được chọn trong cùng một Buổi (Sáng / Chiều / Tối) BẮT BUỘC phải nằm gần nhau (bán kính di chuyển giữa 2 điểm liên tiếp < 5km).
+   - Xen kẽ loại hình: Tuyệt đối không xếp 2 điểm cùng thể loại liên tiếp (Cấm 2 nhà hàng liên tiếp, Cấm 2 chùa liên tiếp).
+3. CHỈ DÙNG ID ĐỊA ĐIỂM CÓ TRONG DANH SÁCH JSON BÊN DƯỚI. TUYỆT ĐỐI KHÔNG BỊA ĐỊA ĐIỂM HOẶC ID MỚI.
+4. Trả về JSON thuần túy theo đúng format.
 
 FORMAT JSON TRẢ VỀ:
 {
@@ -1211,11 +1215,15 @@ FORMAT JSON TRẢ VỀ:
       "places": [
         {
           "placeId": 123,
+          "startTime": "08:30",
+          "endTime": "09:45",
+          "status": "UNCHANGED",
           "note": "Ghi chú tinh tế giải thích lý do chọn địa điểm này cho khách (1-2 câu)"
         }
       ]
     }
-  ]
+  ],
+  "systemNote": "Ghi chú ngắn từ AI nếu có điều chỉnh thời gian đặc biệt"
 }`;
 
     const userPrompt = `THÔNG TIN CHUYẾN ĐI:
