@@ -9,22 +9,20 @@ export interface TimeSlot {
 
 export const DAILY_TIME_SLOTS_DAY1: TimeSlot[] = [
   { label: '07:00 - 08:30', type: 'BREAKFAST_CAFE', startHour: 7, endHour: 8.5 },
-  { label: '08:30 - 11:30', type: 'MORNING_ACTIVITY', startHour: 8.5, endHour: 11.5 },
-  { label: '11:30 - 13:00', type: 'LUNCH', startHour: 11.5, endHour: 13 },
-  { label: '13:00 - 14:00', type: 'HOTEL_CHECKIN', startHour: 13, endHour: 14 },
-  { label: '14:00 - 17:30', type: 'AFTERNOON_ACTIVITY', startHour: 14, endHour: 17.5 },
-  { label: '17:30 - 20:00', type: 'DINNER', startHour: 17.5, endHour: 20 },
-  { label: '20:00 - 22:00', type: 'NIGHT_ACTIVITY', startHour: 20, endHour: 22 },
+  { label: '09:30 - 11:00', type: 'MORNING_ACTIVITY', startHour: 9.5, endHour: 11 },
+  { label: '11:30 - 12:30', type: 'LUNCH', startHour: 11.5, endHour: 12.5 },
+  { label: '13:30 - 15:00', type: 'HOTEL_CHECKIN', startHour: 13.5, endHour: 15 },
+  { label: '16:00 - 17:30', type: 'DINNER', startHour: 16, endHour: 17.5 },
+  { label: '18:30 - 22:00', type: 'NIGHT_ACTIVITY', startHour: 18.5, endHour: 22 },
 ];
 
 export const DAILY_TIME_SLOTS_OTHER_DAYS: TimeSlot[] = [
-  { label: '05:30 - 07:30', type: 'EARLY_MORNING_ACTIVITY', startHour: 5.5, endHour: 7.5 },
-  { label: '07:30 - 08:30', type: 'BREAKFAST_CAFE', startHour: 7.5, endHour: 8.5 },
-  { label: '08:30 - 11:30', type: 'MORNING_ACTIVITY', startHour: 8.5, endHour: 11.5 },
-  { label: '11:30 - 13:30', type: 'LUNCH', startHour: 11.5, endHour: 13.5 },
-  { label: '13:30 - 17:30', type: 'AFTERNOON_ACTIVITY', startHour: 13.5, endHour: 17.5 },
-  { label: '17:30 - 20:00', type: 'DINNER', startHour: 17.5, endHour: 20 },
-  { label: '20:00 - 22:00', type: 'NIGHT_ACTIVITY', startHour: 20, endHour: 22 },
+  { label: '07:00 - 08:30', type: 'BREAKFAST_CAFE', startHour: 7, endHour: 8.5 },
+  { label: '09:30 - 11:00', type: 'MORNING_ACTIVITY', startHour: 9.5, endHour: 11 },
+  { label: '11:30 - 12:30', type: 'LUNCH', startHour: 11.5, endHour: 12.5 },
+  { label: '13:30 - 15:00', type: 'AFTERNOON_ACTIVITY', startHour: 13.5, endHour: 15 },
+  { label: '16:00 - 17:30', type: 'DINNER', startHour: 16, endHour: 17.5 },
+  { label: '18:30 - 22:00', type: 'NIGHT_ACTIVITY', startHour: 18.5, endHour: 22 },
 ];
 
 @Injectable()
@@ -201,60 +199,157 @@ export class RuleEngineService {
     const desc = (place.description || '').toLowerCase();
     const fullText = `${catName} ${name} ${desc}`;
 
-    // 1. Địa điểm ban ngày bắt buộc: Chùa, Thiền viện, Tịnh xá, Bảo tàng, Di tích, Công viên, Nông trại, Đền, Miếu, Nhà cổ, Chợ nổi
-    const isDaytimeAttraction = [
-      'chùa', 'thiền viện', 'tịnh xá', 'bảo tàng', 'di tích', 'công viên', 'nông trại',
-      'đền', 'miếu', 'lăng', 'nhà cổ', 'pagoda', 'khu du lịch', 'sinh thái', 'chợ nổi'
+    // 1. BƯỚC QUAN TRỌNG NHẤT: BẮT BUỘC kiểm tra Điểm tâm sáng & Cà phê ĐẦU TIÊN
+    const isBreakfast = [
+      'cà phê', 'cafe', 'coffee', 'highland', 'điểm tâm', 'bún', 'phở', 'bánh mì', 'hủ tiếu',
+      'ăn sáng', 'quán sáng', 'bữa sáng', 'bánh cuộn', 'cháo', 'xôi', 'cà phê sáng'
     ].some((k) => fullText.includes(k));
 
-    if (isDaytimeAttraction) return 'DAYTIME_ATTRACTION';
+    if (isBreakfast) return 'BREAKFAST';
 
-    // 2. Địa điểm buổi tối / ban đêm: Chợ đêm, Cầu đi bộ, Bến Ninh Kiều, Bar, Pub, Karaoke, Cà phê đêm, Phố đi bộ
+    // 2. Địa điểm buổi tối / ban đêm: Chợ đêm, Cầu đi bộ, Bến Ninh Kiều, Bar, Pub, Karaoke, Phố đi bộ
     const isNightActivity = [
       'chợ đêm', 'cầu đi bộ', 'ninh kiều', 'bar', 'pub', 'club', 'karaoke', 'phố đi bộ', 'dạo sông', 'biển cần thơ'
     ].some((k) => fullText.includes(k));
 
     if (isNightActivity) return 'NIGHT_ACTIVITY';
 
-    // 3. Điểm tâm / Cà phê sáng
-    const isBreakfast = [
-      'điểm tâm', 'bún', 'phở', 'bánh mì', 'hủ tiếu', 'cà phê sáng', 'cafe sáng'
-    ].some((k) => fullText.includes(k));
-
-    if (isBreakfast) return 'BREAKFAST';
-
-    // 4. Bữa ăn / Nhà hàng / Quán ăn / Hải sản
+    // 3. Bữa ăn / Nhà hàng / Quán ăn / Hải sản (Trưa & Tối)
     const isDinner = [
       'nhà hàng', 'quán ăn', 'hải sản', 'lẩu', 'nướng', 'bữa ăn', 'ẩm thực', 'quán'
     ].some((k) => fullText.includes(k));
 
     if (isDinner) return 'DINNER';
 
+    // 4. Địa điểm ban ngày: Chùa, Thiền viện, Tịnh xá, Bảo tàng, Di tích, Công viên, Nông trại, Đền, Miếu, Nhà cổ, Chợ nổi
     return 'DAYTIME_ATTRACTION';
   }
 
   /**
-   * Sắp xếp danh sách địa điểm trong 1 ngày theo đúng thứ tự nhịp sinh hoạt thực tế:
-   * Sáng (Ăn sáng / Cà phê) -> Ban ngày (Tham quan Chùa / Thiền viện / Bảo tàng / Công viên) -> Bữa ăn (Trưa/Tối) -> Ban đêm (Vui chơi / Chợ đêm / Cà phê đêm)
+   * Phân loại thuộc tính chung của địa điểm
    */
-  sortDayPlacesByBiologicalSchedule(dayPlaces: any[], candidatePlacesMap: Map<number, any>): any[] {
+  getGeneralCategoryGroup(item: any): 'HOTEL' | 'CAFE' | 'DINING' | 'ATTRACTION' {
+    if (!item) return 'ATTRACTION';
+    const place = item.place || item;
+    const catName = (place.category?.name || item.category?.name || '').toLowerCase();
+    const name = (place.name || item.name || '').toLowerCase();
+    const desc = (place.description || item.description || '').toLowerCase();
+    const fullText = `${catName} ${name} ${desc}`;
+
+    if (catName.includes('khách sạn') || catName.includes('homestay') || catName.includes('resort') || name.includes('khách sạn') || name.includes('homestay') || name.includes('resort')) {
+      return 'HOTEL';
+    }
+    if (catName.includes('cà phê') || catName.includes('cafe') || name.includes('cà phê') || name.includes('coffee') || name.includes('highland')) {
+      return 'CAFE';
+    }
+    if (catName.includes('quán ăn') || catName.includes('nhà hàng') || catName.includes('quán') || catName.includes('ẩm thực') || name.includes('quán') || name.includes('nhà hàng') || name.includes('hải sản') || name.includes('bún') || name.includes('phở') || name.includes('brunch') || name.includes('ốc')) {
+      return 'DINING';
+    }
+    return 'ATTRACTION';
+  }
+
+  /**
+   * RÀNG BUỘC CẤM 2 ĐỊA ĐIỂM CÙNG THUỘC TÍNH LIÊN TIẾP NHAU
+   * Tránh 2 khách sạn, 2 quán café, 2 điểm tham quan/chùa, hoặc 2 nhà hàng/quán ăn nằm kề nhau trong lịch trình.
+   */
+  preventConsecutiveSameCategory(dayPlaces: any[], candidatePlacesMap: Map<number, any>): any[] {
+    if (dayPlaces.length <= 2) return dayPlaces;
+
+    const resolvePlace = (item: any) => {
+      if (!item) return null;
+      const pid = Number(item.placeId || item.id || item.place?.id);
+      return candidatePlacesMap.get(pid) || item.place || item;
+    };
+
+    const result: any[] = [];
+    const pool = [...dayPlaces];
+
+    while (pool.length > 0) {
+      if (result.length === 0) {
+        result.push(pool.shift()!);
+        continue;
+      }
+
+      const prevItem = result[result.length - 1];
+      const prevPlace = resolvePlace(prevItem);
+      const prevCat = this.getGeneralCategoryGroup(prevPlace);
+
+      // Tìm điểm tiếp theo trong pool có thuộc tính/loại hình KHÁC loại hình của điểm vừa xếp
+      let foundIdx = pool.findIndex((item) => {
+        const p = resolvePlace(item);
+        return this.getGeneralCategoryGroup(p) !== prevCat;
+      });
+
+      if (foundIdx !== -1) {
+        result.push(pool.splice(foundIdx, 1)[0]);
+      } else {
+        result.push(pool.shift()!);
+      }
+    }
+
+    // TỰ ĐỘNG KHẮC PHỤC: Nếu sau khi xếp vẫn còn 2 địa điểm cùng thuộc tính (VD: 2 Nhà hàng/Quán ăn liên tiếp)
+    // Tự động chèn 1 địa điểm Tham quan/Cà phê khác vào giữa để ngăn chặn tuyệt đối.
+    for (let i = 0; i < result.length - 1; i++) {
+      const p1 = resolvePlace(result[i]);
+      const p2 = resolvePlace(result[i + 1]);
+      const cat1 = this.getGeneralCategoryGroup(p1);
+      const cat2 = this.getGeneralCategoryGroup(p2);
+
+      if (cat1 === cat2 && (cat1 === 'DINING' || cat1 === 'HOTEL' || cat1 === 'CAFE')) {
+        let separatorPlace: any = null;
+        for (const [id, candidate] of candidatePlacesMap.entries()) {
+          const cCat = this.getGeneralCategoryGroup(candidate);
+          if (cCat !== cat1) {
+            const isAlreadyInDay = result.some((r) => Number(r.placeId || r.id || r.place?.id) === Number(id));
+            if (!isAlreadyInDay) {
+              separatorPlace = {
+                placeId: Number(id),
+                note: `Ghé thăm ${candidate.name} (${candidate.category?.name || 'Điểm đến'}) để trải nghiệm không gian giải trí giữa các bữa ăn.`,
+              };
+              break;
+            }
+          }
+        }
+
+        if (separatorPlace) {
+          result.splice(i + 1, 0, separatorPlace);
+          i++; // Bỏ qua phần tử vừa chèn
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Sắp xếp danh sách địa điểm trong 1 ngày theo đúng thứ tự nhịp sinh hoạt thực tế:
+   * Slot 0: Ăn sáng & Cà phê
+   * Slot 1: Tham quan sáng
+   * Slot 2: Ăn trưa & Nghỉ ngơi (Bữa trưa)
+   * Slot 3: Check-in Khách sạn (nếu Ngày 1) hoặc Vui chơi/Tham quan chiều
+   * Slot 4: Ăn chiều/tối (Bữa tối)
+   * Slot 5: Vui chơi & Chợ đêm buổi tối
+   */
+  sortDayPlacesByBiologicalSchedule(dayPlaces: any[], candidatePlacesMap: Map<number, any>, dayNumber: number = 1): any[] {
     if (dayPlaces.length <= 1) return dayPlaces;
 
     const breakfasts: any[] = [];
     const daytimeAttractions: any[] = [];
-    const dinners: any[] = [];
+    const diningSpots: any[] = [];
     const nightActivities: any[] = [];
+    const hotelPlaces: any[] = [];
 
     for (const item of dayPlaces) {
-      const placeObj = candidatePlacesMap.get(Number(item.placeId));
+      const placeObj = candidatePlacesMap.get(Number(item.placeId || item.id || item.place?.id));
+      const group = this.getGeneralCategoryGroup(placeObj);
       const bioType = this.getPlaceBiologicalCategory(placeObj);
 
-      if (bioType === 'BREAKFAST') {
+      if (group === 'HOTEL') {
+        hotelPlaces.push(item);
+      } else if (bioType === 'BREAKFAST') {
         breakfasts.push(item);
-      } else if (bioType === 'DAYTIME_ATTRACTION') {
-        daytimeAttractions.push(item);
-      } else if (bioType === 'DINNER') {
-        dinners.push(item);
+      } else if (bioType === 'DINNER' || group === 'DINING') {
+        diningSpots.push(item);
       } else if (bioType === 'NIGHT_ACTIVITY') {
         nightActivities.push(item);
       } else {
@@ -262,30 +357,75 @@ export class RuleEngineService {
       }
     }
 
+    // 1. GUARANTEE BREAKFAST AT SLOT 0
+    if (breakfasts.length === 0) {
+      for (const [id, place] of candidatePlacesMap.entries()) {
+        const cat = (place.category?.name || '').toLowerCase();
+        const name = (place.name || '').toLowerCase();
+        const full = `${cat} ${name}`;
+        if (full.includes('cà phê') || full.includes('cafe') || full.includes('coffee') || full.includes('bún') || full.includes('phở') || full.includes('bánh mì') || full.includes('điểm tâm')) {
+          const alreadyInDay = dayPlaces.some((dp) => Number(dp.placeId || dp.id) === Number(id));
+          if (!alreadyInDay) {
+            breakfasts.push({
+              placeId: Number(id),
+              note: `Thưởng thức điểm tâm sáng & cà phê nạp năng lượng tại ${place.name}.`,
+            });
+            break;
+          }
+        }
+      }
+      if (breakfasts.length === 0 && diningSpots.length > 0) {
+        breakfasts.push(diningSpots.shift());
+      }
+    }
+
     const sortedBreakfasts = this.optimizeDayRouteByDistance(breakfasts, candidatePlacesMap);
     const sortedDaytime = this.optimizeDayRouteByDistance(daytimeAttractions, candidatePlacesMap);
-    const sortedDinners = this.optimizeDayRouteByDistance(dinners, candidatePlacesMap);
+    const sortedDining = this.optimizeDayRouteByDistance(diningSpots, candidatePlacesMap);
     const sortedNight = this.optimizeDayRouteByDistance(nightActivities, candidatePlacesMap);
 
     const result: any[] = [];
-    result.push(...sortedBreakfasts);
 
-    if (sortedDinners.length > 1 && sortedDaytime.length > 0) {
-      const lunchRestaurant = sortedDinners.shift();
-      const halfDaytime = Math.ceil(sortedDaytime.length / 2);
-
-      result.push(...sortedDaytime.slice(0, halfDaytime));
-      result.push(lunchRestaurant);
-      result.push(...sortedDaytime.slice(halfDaytime));
-      result.push(...sortedDinners);
-    } else {
-      result.push(...sortedDaytime);
-      result.push(...sortedDinners);
+    // Slot 0 (07:00 - 08:30): Breakfast & Cafe
+    if (sortedBreakfasts.length > 0) {
+      result.push(sortedBreakfasts.shift());
     }
 
-    result.push(...sortedNight);
+    // Slot 1 (09:30 - 11:00): Morning Attraction
+    if (sortedDaytime.length > 0) {
+      result.push(sortedDaytime.shift());
+    }
 
-    return result;
+    // Slot 2 (11:30 - 12:30): Lunch (Dining)
+    if (sortedDining.length > 0) {
+      result.push(sortedDining.shift());
+    } else if (sortedDaytime.length > 0) {
+      result.push(sortedDaytime.shift());
+    }
+
+    // Slot 3 (13:30 - 15:00): Day 1 Check-in Hotel OR Afternoon Activity
+    if (dayNumber === 1 && hotelPlaces.length > 0) {
+      result.push(hotelPlaces.shift());
+    } else if (sortedDaytime.length > 0) {
+      result.push(sortedDaytime.shift());
+    }
+
+    // Slot 4 (16:00 - 17:30): Dinner (Dining)
+    if (sortedDining.length > 0) {
+      result.push(sortedDining.shift());
+    } else if (sortedDaytime.length > 0) {
+      result.push(sortedDaytime.shift());
+    }
+
+    // Slot 5 (18:30 - 22:00): Night Activity
+    if (sortedNight.length > 0) {
+      result.push(sortedNight.shift());
+    }
+
+    // Add any remaining items
+    result.push(...sortedBreakfasts, ...hotelPlaces, ...sortedDaytime, ...sortedDining, ...sortedNight);
+
+    return this.preventConsecutiveSameCategory(result, candidatePlacesMap);
   }
 
   /**
