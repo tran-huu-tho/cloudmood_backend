@@ -1496,32 +1496,25 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
     // ─── STEP 9: BIOLOGICAL & GEOGRAPHIC ROUTE OPTIMIZER ────────────
     const candidatePlacesMap = new Map<number, any>(candidatePlaces.map((cp) => [Number(cp.id), cp]));
 
-    const defaultTimeSlots = [
-      { startTime: '07:00', endTime: '08:30' },
-      { startTime: '09:15', endTime: '10:45' },
-      { startTime: '11:30', endTime: '13:00' },
-      { startTime: '13:45', endTime: '15:15' },
-      { startTime: '16:00', endTime: '17:30' },
-      { startTime: '18:30', endTime: '21:30' },
-    ];
-
     const finalOptimizedDays = validatedDays.map((d) => {
-      const sortedPlaces = this.ruleEngine.sortDayPlacesByBiologicalSchedule(d.places, candidatePlacesMap, d.dayNumber);
-      const placesWithTime = sortedPlaces.map((p: any, idx: number) => {
-        const slot = defaultTimeSlots[idx % defaultTimeSlots.length];
-        return {
-          ...p,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-        };
-      });
+      const placesWithTime = this.ruleEngine.sortDayPlacesByBiologicalSchedule(
+        d.places,
+        candidatePlacesMap,
+        d.dayNumber,
+        {
+          destination,
+          customRequest,
+          hasHotel: (dto as any).hasHotel !== false,
+          isRainy,
+        },
+      );
       return {
         ...d,
         places: placesWithTime,
       };
     });
 
-    this.logger.log(`generateItinerary: ${finalOptimizedDays.length} days generated using Rule-Based + Gemini RAG + Geographic TSP pipeline.`);
+    this.logger.log(`generateItinerary: ${finalOptimizedDays.length} days generated using Upgraded Rule-Engine (6 Hard Rules + Exception Matrix + Elastic Timeline).`);
     return { days: finalOptimizedDays };
   }
 
