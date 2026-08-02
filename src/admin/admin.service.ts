@@ -15,7 +15,7 @@ export class AdminService {
   constructor(
     private prisma: PrismaService,
     private cloudinaryService: CloudinaryService,
-  ) {}
+  ) { }
 
   async uploadImageToCloudinary(
     imageStr: string | null | undefined,
@@ -281,13 +281,13 @@ export class AdminService {
           createdAt: item.createdAt ? (typeof item.createdAt === 'string' ? item.createdAt : (item.createdAt as any)?.toISOString?.() || String(item.createdAt)) : null,
           expense: item.expense
             ? {
-                id: item.expense.id.toString(),
-                title: item.expense.title,
-                amount: Number(item.expense.amount) || 0,
-                category: item.expense.category,
-                payer: item.expense.payer,
-                share: item.expense.share,
-              }
+              id: item.expense.id.toString(),
+              title: item.expense.title,
+              amount: Number(item.expense.amount) || 0,
+              category: item.expense.category,
+              payer: item.expense.payer,
+              share: item.expense.share,
+            }
             : null,
         }));
       } catch (e) {
@@ -406,6 +406,7 @@ export class AdminService {
             fullName: true,
             email: true,
             avatar: true,
+            role: true,
           },
         },
         originalItinerary: {
@@ -423,7 +424,12 @@ export class AdminService {
         },
         items: {
           include: {
-            place: true,
+            place: {
+              include: {
+                category: true,
+              },
+            },
+            featuredReview: true,
           },
           orderBy: { sortOrder: 'asc' },
         },
@@ -805,6 +811,98 @@ export class AdminService {
     return result;
   }
 
+  async getUserChatSessions(userId: string) {
+    const uId = BigInt(userId);
+    const sessions = await this.prisma.chatSession.findMany({
+      where: { userId: uId },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        _count: { select: { messages: true } },
+        messages: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    return sessions.map((s) => ({
+      id: s.id.toString(),
+      userId: s.userId.toString(),
+      title: s.title || 'Đoạn chat AI chưa đặt tên',
+      destination: s.destination || null,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      messageCount: s._count.messages,
+      lastMessage: s.messages[0]?.content || null,
+    }));
+  }
+
+  async getChatSessionMessages(sessionId: string) {
+    const sId = BigInt(sessionId);
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sId },
+      include: {
+        user: {
+          select: { id: true, fullName: true, email: true, avatar: true },
+        },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException(`ChatSession với ID ${sessionId} không tồn tại.`);
+    }
+
+    return {
+      id: session.id.toString(),
+      userId: session.userId.toString(),
+      user: session.user ? {
+        ...session.user,
+        id: session.user.id.toString(),
+      } : null,
+      title: session.title || 'Đoạn chat AI chưa đặt tên',
+      destination: session.destination || null,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      messages: session.messages.map((m) => ({
+        id: m.id.toString(),
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+      })),
+    };
+  }
+
+  async deleteChatSession(sessionId: string) {
+    const sId = BigInt(sessionId);
+    await this.prisma.chatMessage.deleteMany({ where: { sessionId: sId } });
+    return this.prisma.chatSession.delete({ where: { id: sId } });
+  }
+
+  async deleteAllUserChatSessions(userId: string) {
+    const uId = BigInt(userId);
+
+    const sessions = await this.prisma.chatSession.findMany({
+      where: { userId: uId },
+      select: { id: true },
+    });
+
+    const sessionIds = sessions.map((s) => s.id);
+
+    if (sessionIds.length > 0) {
+      await this.prisma.chatMessage.deleteMany({
+        where: { sessionId: { in: sessionIds } },
+      });
+      await this.prisma.chatSession.deleteMany({
+        where: { userId: uId },
+      });
+    }
+
+    return { success: true, count: sessions.length };
+  }
+
   // 3. Category Management
   async getCategories() {
     return this.prisma.category.findMany({
@@ -1078,8 +1176,8 @@ export class AdminService {
             ? data.isApproved === true || data.isApproved === 'true'
               ? true
               : data.isApproved === false || data.isApproved === 'false'
-              ? false
-              : null
+                ? false
+                : null
             : place.isApproved,
         lastSyncedAt: new Date(),
       },
