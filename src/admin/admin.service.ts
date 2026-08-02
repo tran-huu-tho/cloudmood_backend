@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   ConflictException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
