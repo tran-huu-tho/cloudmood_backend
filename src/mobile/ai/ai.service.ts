@@ -1203,6 +1203,7 @@ CÁC RÀNG BUỘC CỨNG VỀ THỜI GIAN & ĐỊA LÝ (HARD CONSTRAINTS)
    - Mở đầu ngày (07:00 - 08:30) bắt buộc là Ăn sáng / Cà phê sáng (trừ trường hợp đi Chợ nổi).
    - Tối ưu cụm địa lý (< 5km): Các địa điểm được chọn trong cùng một Buổi (Sáng / Chiều / Tối) BẮT BUỘC phải nằm gần nhau (bán kính di chuyển giữa 2 điểm liên tiếp < 5km).
    - Xen kẽ loại hình: Tuyệt đối không xếp 2 điểm cùng thể loại liên tiếp (Cấm 2 nhà hàng liên tiếp, Cấm 2 chùa liên tiếp).
+   - KHOẢNG NGHỈ VÀ DI CHUYỂN (30 - 45 PHÚT): Khoảng nghỉ giữa điểm kết thúc của địa điểm trước (endTime) và điểm bắt đầu của địa điểm kế tiếp (startTime) BẮT BUỘC TỪ 30 ĐẾN 45 PHÚT để du khách di chuyển và nghỉ ngơi thoải mái. TUYỆT ĐỐI KHÔNG xếp khoảng nghỉ quá sát (dưới 30 phút).
 3. CHỈ DÙNG ID ĐỊA ĐIỂM CÓ TRONG DANH SÁCH JSON BÊN DƯỚI. TUYỆT ĐỐI KHÔNG BỊA ĐỊA ĐIỂM HOẶC ID MỚI.
 4. Trả về JSON thuần túy theo đúng format.
 
@@ -1497,11 +1498,11 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
 
     const defaultTimeSlots = [
       { startTime: '07:00', endTime: '08:30' },
-      { startTime: '09:30', endTime: '11:00' },
-      { startTime: '11:30', endTime: '12:30' },
-      { startTime: '13:30', endTime: '15:00' },
+      { startTime: '09:15', endTime: '10:45' },
+      { startTime: '11:30', endTime: '13:00' },
+      { startTime: '13:45', endTime: '15:15' },
       { startTime: '16:00', endTime: '17:30' },
-      { startTime: '18:30', endTime: '22:00' },
+      { startTime: '18:30', endTime: '21:30' },
     ];
 
     const finalOptimizedDays = validatedDays.map((d) => {
