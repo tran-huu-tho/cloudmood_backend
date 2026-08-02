@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   ConflictException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
@@ -480,19 +481,112 @@ export class AdminService {
         postType: data.postType || 'BLOG',
         destination: data.destination || '',
         status: data.status || 'PUBLISHED',
+        platformName: data.platformName || null,
+        platformLogo: data.platformLogo || null,
+        platformUrl: data.platformUrl || null,
         authorId: authorId,
       },
     });
 
     if (Array.isArray(data.items) && data.items.length > 0) {
-      const itemsData = data.items.map((item: any, index: number) => ({
-        postId: post.id,
-        itemType: item.itemType || 'TEXT',
-        sortOrder: index + 1,
-        content: item.content || '',
-        placeId: item.placeId ? BigInt(item.placeId) : null,
-      }));
+      // Pre-fetch place descriptions as fallback for place items with empty content
+      const placeIds = data.items
+        .filter((i: any) => i.placeId)
+        .map((i: any) => BigInt(i.placeId));
+
+      const placeMap = new Map<string, any>();
+      if (placeIds.length > 0) {
+        const places = await this.prisma.place.findMany({
+          where: { id: { in: placeIds } },
+          select: { id: true, name: true, description: true },
+        });
+        places.forEach((p) => placeMap.set(p.id.toString(), p));
+      }
+
+      const itemsData = data.items.map((item: any, index: number) => {
+        let finalContent = item.content && typeof item.content === 'string' ? item.content.trim() : '';
+        if (!finalContent && item.placeId) {
+          const dbPlace = placeMap.get(item.placeId.toString());
+          finalContent = dbPlace?.description || dbPlace?.name || '';
+        }
+
+        return {
+          postId: post.id,
+          itemType: item.itemType || (item.placeId ? 'PLACE' : 'NOTE'),
+          sortOrder: index + 1,
+          content: finalContent,
+          placeId: item.placeId ? BigInt(item.placeId) : null,
+        };
+      });
       await this.prisma.explorePostItem.createMany({ data: itemsData });
+    }
+
+    return post;
+  }
+
+  async updateExplorePost(id: string, data: any) {
+    const postId = BigInt(id);
+
+    const existingPost = await this.prisma.explorePost.findUnique({
+      where: { id: postId },
+    });
+
+    if (!existingPost) {
+      throw new NotFoundException(`ExplorePost với ID ${id} không tồn tại.`);
+    }
+
+    const post = await this.prisma.explorePost.update({
+      where: { id: postId },
+      data: {
+        title: data.title !== undefined ? data.title : existingPost.title,
+        description: data.description !== undefined ? data.description : existingPost.description,
+        coverImage: data.coverImage !== undefined ? data.coverImage : existingPost.coverImage,
+        destination: data.destination !== undefined ? data.destination : existingPost.destination,
+        status: data.status !== undefined ? data.status : existingPost.status,
+        platformName: data.platformName !== undefined ? data.platformName : existingPost.platformName,
+        platformLogo: data.platformLogo !== undefined ? data.platformLogo : existingPost.platformLogo,
+        platformUrl: data.platformUrl !== undefined ? data.platformUrl : existingPost.platformUrl,
+      },
+    });
+
+    if (Array.isArray(data.items)) {
+      // Remove existing items and replace with new ones
+      await this.prisma.explorePostItem.deleteMany({
+        where: { postId },
+      });
+
+      if (data.items.length > 0) {
+        const placeIds = data.items
+          .filter((i: any) => i.placeId)
+          .map((i: any) => BigInt(i.placeId));
+
+        const placeMap = new Map<string, any>();
+        if (placeIds.length > 0) {
+          const places = await this.prisma.place.findMany({
+            where: { id: { in: placeIds } },
+            select: { id: true, name: true, description: true },
+          });
+          places.forEach((p) => placeMap.set(p.id.toString(), p));
+        }
+
+        const itemsData = data.items.map((item: any, index: number) => {
+          let finalContent = item.content && typeof item.content === 'string' ? item.content.trim() : '';
+          if (!finalContent && item.placeId) {
+            const dbPlace = placeMap.get(item.placeId.toString());
+            finalContent = dbPlace?.description || dbPlace?.name || '';
+          }
+
+          return {
+            postId: post.id,
+            itemType: item.itemType || (item.placeId ? 'PLACE' : 'NOTE'),
+            sortOrder: index + 1,
+            content: finalContent,
+            placeId: item.placeId ? BigInt(item.placeId) : null,
+          };
+        });
+
+        await this.prisma.explorePostItem.createMany({ data: itemsData });
+      }
     }
 
     return post;

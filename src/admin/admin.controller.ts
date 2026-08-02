@@ -78,6 +78,11 @@ export class AdminController {
     return this.adminService.createExplorePost(body);
   }
 
+  @Put('explore-posts/:id')
+  async updateExplorePost(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateExplorePost(id, body);
+  }
+
   @Delete('explore-posts/:id')
   async deleteExplorePost(@Param('id') id: string) {
     return this.adminService.deleteExplorePost(id);
