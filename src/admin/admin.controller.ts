@@ -147,6 +147,26 @@ export class AdminController {
     return this.adminService.toggleBlockUser(id, isBlocked);
   }
 
+  @Get('users/:id/chat-sessions')
+  async getUserChatSessions(@Param('id') id: string) {
+    return this.adminService.getUserChatSessions(id);
+  }
+
+  @Get('chat-sessions/:id/messages')
+  async getChatSessionMessages(@Param('id') id: string) {
+    return this.adminService.getChatSessionMessages(id);
+  }
+
+  @Delete('chat-sessions/:id')
+  async deleteChatSession(@Param('id') id: string) {
+    return this.adminService.deleteChatSession(id);
+  }
+
+  @Delete('users/:id/chat-sessions')
+  async deleteAllUserChatSessions(@Param('id') id: string) {
+    return this.adminService.deleteAllUserChatSessions(id);
+  }
+
   // 3. Category Management
   @Get('categories')
   async getCategories() {
