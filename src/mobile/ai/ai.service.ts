@@ -971,17 +971,25 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    if (candidatePlaces.length === 0) {
-      candidatePlaces = await this.prisma.place.findMany({
+    // Bổ sung thêm địa điểm từ DB nếu số lượng theo thành phố chưa đủ (Đảm bảo luôn thừa địa điểm cho tất cả các ngày)
+    const minRequiredPlaces = Math.max(36, days * 12);
+    if (candidatePlaces.length < minRequiredPlaces) {
+      const allExtraPlaces = await this.prisma.place.findMany({
         where: {
           isApproved: true,
-          photos: { some: {} }, // Chỉ lấy địa điểm có ảnh
+          photos: { some: {} },
         },
         include: {
           category: true,
           photos: { take: 1 },
         },
+        take: 100,
       });
+      for (const ep of allExtraPlaces) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(ep.id))) {
+          candidatePlaces.push(ep);
+        }
+      }
     }
 
     this.logger.log(`[DB STATS] Total DB Places: ${totalDbPlaces}, Approved: ${totalApprovedPlaces}, Places in ${cleanDest}: ${candidatePlaces.length}`);
