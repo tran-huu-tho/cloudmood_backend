@@ -113,9 +113,13 @@ export class ItinerariesService implements OnModuleInit {
       const directCover = item.coverImage || null;
       const dayConfigCover = dc.coverImage || null;
 
+      // Lọc bỏ các detail/savedPlace mà place bị xóa khỏi CSDL
+      const validDetails = (item.details || []).filter((d) => d.place !== null);
+      const validSavedPlaces = (item.savedPlaces || []).filter((sp) => sp.place !== null);
+
       let placePhotoCover: string | null = null;
       if (!directCover && !dayConfigCover && !explorePostCover) {
-        for (const detail of item.details || []) {
+        for (const detail of validDetails) {
           const photo =
             detail.place?.photos?.[0]?.urlOriginal ||
             detail.place?.photos?.[0]?.urlThumbnail;
@@ -125,7 +129,7 @@ export class ItinerariesService implements OnModuleInit {
           }
         }
         if (!placePhotoCover) {
-          for (const sp of item.savedPlaces || []) {
+          for (const sp of validSavedPlaces) {
             const photo =
               sp.place?.photos?.[0]?.urlOriginal ||
               sp.place?.photos?.[0]?.urlThumbnail;
@@ -143,6 +147,8 @@ export class ItinerariesService implements OnModuleInit {
 
       return {
         ...item,
+        details: validDetails,
+        savedPlaces: validSavedPlaces,
         coverImage: resolvedCover,
         cover_image: resolvedCover,
         image_url: resolvedCover,
@@ -176,6 +182,20 @@ export class ItinerariesService implements OnModuleInit {
 
     if (!itinerary) return null;
 
+    // Lọc bỏ các ItineraryDetail có place bị xóa khỏi CSDL (place === null)
+    const validDetails = (itinerary.details || []).filter((d) => d.place !== null);
+    const validSavedPlaces = (itinerary.savedPlaces || []).filter((sp) => sp.place !== null);
+
+    // Xóa các ItineraryDetail mồ côi ra khỏi DB trong background
+    const orphanDetailIds = (itinerary.details || [])
+      .filter((d) => d.place === null && d.placeId !== null)
+      .map((d) => d.id);
+    if (orphanDetailIds.length > 0) {
+      this.prisma.itineraryDetail
+        .deleteMany({ where: { id: { in: orphanDetailIds } } })
+        .catch(() => {}); // fire-and-forget, do not block response
+    }
+
     let weather: any = null;
     try {
       if (itinerary.destination) {
@@ -195,7 +215,7 @@ export class ItinerariesService implements OnModuleInit {
 
     let placePhotoCover: string | null = null;
     if (!directCover && !dayConfigCover && !explorePostCover) {
-      for (const detail of itinerary.details || []) {
+      for (const detail of validDetails) {
         const photo =
           detail.place?.photos?.[0]?.urlOriginal ||
           detail.place?.photos?.[0]?.urlThumbnail;
@@ -205,7 +225,7 @@ export class ItinerariesService implements OnModuleInit {
         }
       }
       if (!placePhotoCover) {
-        for (const sp of itinerary.savedPlaces || []) {
+        for (const sp of validSavedPlaces) {
           const photo =
             sp.place?.photos?.[0]?.urlOriginal ||
             sp.place?.photos?.[0]?.urlThumbnail;
@@ -223,6 +243,8 @@ export class ItinerariesService implements OnModuleInit {
 
     return {
       ...itinerary,
+      details: validDetails,
+      savedPlaces: validSavedPlaces,
       coverImage: resolvedCover,
       cover_image: resolvedCover,
       image_url: resolvedCover,

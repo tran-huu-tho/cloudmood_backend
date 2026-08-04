@@ -91,11 +91,10 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       : 'generateContent';
 
     const modelsToTry = [
-      'models/gemini-3.5-flash',
-      'models/gemini-3.1-flash-lite',
-      'models/gemini-flash-latest',
-      'models/gemini-3.5-flash-lite',
-      'models/gemini-3.6-flash',
+      'models/gemini-2.5-flash',
+      'models/gemini-2.0-flash',
+      'models/gemini-1.5-flash',
+      'models/gemini-2.5-pro',
     ];
 
     let lastError: any;
@@ -117,6 +116,56 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     }
 
     throw lastError || new Error('Tất cả mô hình AI đều gặp lỗi.');
+  }
+
+  private async postOpenAIChatCompletion(
+    systemInstruction: string,
+    userPrompt: string,
+  ): Promise<any> {
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      throw new Error('Chưa cấu hình OPENAI_API_KEY trong tệp .env.');
+    }
+
+    const models = ['gpt-4o', 'gpt-4o-mini'];
+    let lastError: any = null;
+
+    for (const model of models) {
+      try {
+        this.logger.log(`[OPENAI] Calling ${model}...`);
+        const payload = {
+          model,
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: userPrompt },
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.7,
+        };
+
+        const response = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          payload,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${openaiApiKey}`,
+            },
+            timeout: 45000,
+          },
+        );
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        const status = err.response?.status;
+        const apiErrorMessage = err.response?.data?.error?.message || '';
+        this.logger.warn(
+          `OpenAI model ${model} failed (Status ${status}): ${apiErrorMessage || err.message}. trying next...`,
+        );
+      }
+    }
+
+    throw lastError || new Error('Tất cả mô hình OpenAI đều gặp lỗi.');
   }
 
   // ============================================
@@ -396,7 +445,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     };
 
     try {
-      const response = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', payload);
+      const response = await this.postWithKeyRotation('models/gemini-2.5-flash:generateContent', payload);
       const data = response.data as GeminiResponseData;
       const candidates = data?.candidates;
       if (candidates && candidates.length > 0) {
@@ -471,7 +520,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
           generationConfig: { temperature: 0.3 },
         };
         const titleResponse = await this.postWithKeyRotation(
-          'models/gemini-3.5-flash:generateContent',
+          'models/gemini-2.5-flash:generateContent',
           titlePayload,
         );
         const titleCandidates = titleResponse.data?.candidates;
@@ -552,7 +601,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
 
     let aiReply = 'Xin lỗi, có lỗi xảy ra.';
     try {
-      const response = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', payload);
+      const response = await this.postWithKeyRotation('models/gemini-2.5-flash:generateContent', payload);
       const data = response.data as GeminiResponseData;
       const candidates = data?.candidates;
       if (candidates && candidates.length > 0) {
@@ -626,7 +675,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
           contents: [{ role: 'user', parts: [{ text: `Tóm tắt câu hỏi này thành một tiêu đề ngắn gọn (khoảng 2-5 từ), không dấu ngoặc kép, chỉ trả về tiêu đề: "${message}"` }] }],
           generationConfig: { temperature: 0.3 },
         };
-        const titleResponse = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', titlePayload);
+        const titleResponse = await this.postWithKeyRotation('models/gemini-2.5-flash:generateContent', titlePayload);
         const t = titleResponse.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
         if (t) chatTitle = t;
       } catch { /* use default */ }
@@ -690,10 +739,9 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     let fullReply = '';
     try {
       const modelsToTry = [
-        'models/gemini-3.5-flash',
-        'models/gemini-3.1-flash-lite',
-        'models/gemini-flash-latest',
-        'models/gemini-3.6-flash',
+        'models/gemini-2.5-flash',
+        'models/gemini-2.0-flash',
+        'models/gemini-1.5-flash',
       ];
 
       let streamSuccess = false;
@@ -740,7 +788,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
 
       if (!streamSuccess || !fullReply) {
         // Fallback to non-streaming
-        const response = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', payload);
+        const response = await this.postWithKeyRotation('models/gemini-2.5-flash:generateContent', payload);
         const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) {
           fullReply = text;
@@ -887,14 +935,13 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
   async generateItinerary(dto: {
     destination: string;
     days: number;
-    pace: string;
     companion: string;
     budget: string;
     categories: string[];
     startDate: string; // ISO date string
     customRequest?: string;
-  }): Promise<{ days: Array<{ dayNumber: number; dayTitle: string; places: Array<{ placeId: number; note: string }> }> }> {
-    const { destination, days, pace, companion, budget, categories, startDate, customRequest } = dto;
+  }): Promise<{ days: Array<{ dayNumber: number; dayTitle: string; places: Array<any> }> }> {
+    const { destination, days, companion, budget, categories, startDate, customRequest } = dto;
     let cleanDest = destination
       .replace(/^Thành phố\s+/i, '')
       .replace(/^Thành Phố\s+/i, '')
@@ -904,11 +951,14 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       .trim();
     if (!cleanDest) cleanDest = destination;
 
-    // ─── STEP 1: RAG FETCH ALL APPROVED PLACES FROM DB (NO STAR RATING PENALTY) ───────
+    // ─── STEP 1: RAG FETCH ALL APPROVED PLACES FROM DB (NO LIMIT, NO STAR PENALTY, NO NAME FILTER) ───────
+    const totalDbPlaces = await this.prisma.place.count();
+    const totalApprovedPlaces = await this.prisma.place.count({ where: { isApproved: true } });
 
     let candidatePlaces: any[] = await this.prisma.place.findMany({
       where: {
         isApproved: true,
+        photos: { some: {} }, // Chỉ lấy địa điểm có ảnh
         OR: [
           { address: { contains: cleanDest, mode: 'insensitive' } },
           { address: { contains: destination, mode: 'insensitive' } },
@@ -917,21 +967,24 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       },
       include: {
         category: true,
-        reviews: { take: 2, orderBy: { rating: 'desc' } },
+        photos: { take: 1 },
       },
-      take: 200,
     });
 
     if (candidatePlaces.length === 0) {
       candidatePlaces = await this.prisma.place.findMany({
-        where: { isApproved: true },
+        where: {
+          isApproved: true,
+          photos: { some: {} }, // Chỉ lấy địa điểm có ảnh
+        },
         include: {
           category: true,
-          reviews: { take: 2, orderBy: { rating: 'desc' } },
+          photos: { take: 1 },
         },
-        take: 200,
       });
     }
+
+    this.logger.log(`[DB STATS] Total DB Places: ${totalDbPlaces}, Approved: ${totalApprovedPlaces}, Places in ${cleanDest}: ${candidatePlaces.length}`);
 
     // ─── STEP 1b: FETCH EXPLICITLY REQUESTED PLACES (70% TEXT WEIGHT) ─────────────
     const extractedKeywords = this.ruleEngine.extractSearchKeywords(customRequest);
@@ -949,9 +1002,10 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const bienDongMatches = await this.prisma.place.findMany({
         where: {
           isApproved: true,
+          photos: { some: {} },
           name: { contains: 'Biển Đông', mode: 'insensitive' },
         },
-        include: { category: true },
+        include: { category: true, photos: { take: 1 } },
       });
       for (const bd of bienDongMatches) {
         if (!candidatePlaces.some((cp) => Number(cp.id) === Number(bd.id))) candidatePlaces.push(bd);
@@ -965,12 +1019,13 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const ninhKieuMatches = await this.prisma.place.findMany({
         where: {
           isApproved: true,
+          photos: { some: {} },
           OR: [
             { name: { contains: 'Ninh Kiều', mode: 'insensitive' } },
             { description: { contains: 'Ninh Kiều', mode: 'insensitive' } },
           ],
         },
-        include: { category: true },
+        include: { category: true, photos: { take: 1 } },
       });
       for (const nk of ninhKieuMatches) {
         if (!candidatePlaces.some((cp) => Number(cp.id) === Number(nk.id))) candidatePlaces.push(nk);
@@ -984,6 +1039,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const dbChuas = await this.prisma.place.findMany({
         where: {
           isApproved: true,
+          photos: { some: {} },
           OR: [
             { name: { contains: 'Chùa', mode: 'insensitive' } },
             { name: { contains: 'Thiền viện', mode: 'insensitive' } },
@@ -992,7 +1048,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
             { description: { contains: 'chùa', mode: 'insensitive' } },
           ],
         },
-        include: { category: true },
+        include: { category: true, photos: { take: 1 } },
         take: 10,
       });
 
@@ -1014,12 +1070,13 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
         const matches = await this.prisma.place.findMany({
           where: {
             isApproved: true,
+            photos: { some: {} },
             OR: [
               { name: { contains: kw, mode: 'insensitive' } },
               { description: { contains: kw, mode: 'insensitive' } },
             ],
           },
-          include: { category: true },
+          include: { category: true, photos: { take: 1 } },
           take: 5,
         });
 
@@ -1042,12 +1099,13 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const matches = await this.prisma.place.findMany({
         where: {
           isApproved: true,
+          photos: { some: {} },
           OR: [
             { name: { contains: dc.rawPlaceQuery, mode: 'insensitive' } },
             { description: { contains: dc.rawPlaceQuery, mode: 'insensitive' } },
           ],
         },
-        include: { category: true },
+        include: { category: true, photos: { take: 1 } },
         take: 5,
       });
 
@@ -1058,12 +1116,13 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
           const subMatches = await this.prisma.place.findMany({
             where: {
               isApproved: true,
+              photos: { some: {} },
               OR: [
                 { name: { contains: skw, mode: 'insensitive' } },
                 { description: { contains: skw, mode: 'insensitive' } },
               ],
             },
-            include: { category: true },
+            include: { category: true, photos: { take: 1 } },
             take: 3,
           });
           if (subMatches.length > 0) {
@@ -1089,9 +1148,14 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     }
 
     // ─── STEP 1c: FILTER OUT VAGUE / GENERIC PLACE NAMES (e.g. "Cần Thơ") ────
+    // Và BẮT BUỘC phải có ít nhất 1 ảnh đại diện — tuyệt đối không dùng địa điểm không có ảnh
     candidatePlaces = candidatePlaces.filter(
-      (p) => !this.ruleEngine.isVagueOrInvalidPlaceName(p.name, cleanDest),
+      (p) =>
+        !this.ruleEngine.isVagueOrInvalidPlaceName(p.name, cleanDest) &&
+        Array.isArray(p.photos) &&
+        p.photos.length > 0,
     );
+    this.logger.log(`[PHOTO FILTER] Candidates after photo filter: ${candidatePlaces.length}`);
 
     // ─── STEP 2: WEATHER CHECK FROM WEATHER SERVICE ───────────────────────────
     let isRainy = false;
@@ -1132,7 +1196,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     // Pick 1 single hotel for Day 1 Check-in (13:00 - 14:00)
     const anchorHotel = hotels.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))[0] || candidatePlaces[0];
 
-    // ─── STEP 4: PREPARE PROMPT & CONTEXT FOR GEMINI ─────────────────────────
+    // ─── STEP 4: PREPARE PROMPT & CONTEXT FOR GEMINI / OPENAI ────────────────
     const startDateObj = new Date(startDate);
     const weekdayNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
 
@@ -1157,74 +1221,57 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       score: (p as any).relevanceScore || 50,
     }));
 
-    const pLower = (pace || '').toLowerCase();
-    let minPlacesPerDay = 5; // Default: 'Vừa phải' (4-5 điểm, tối ưu là 5)
-    let pacePromptInstruction = '- NHỊP ĐỘ VỪA PHẢI (4-5 ĐIỂM/NGÀY): BẮT BUỘC MỖI NGÀY PHẢI CÓ TỪ 4 ĐẾN 5 ĐỊA ĐIỂM (TỐI ƯU LÀ 5 ĐỊA ĐIỂM).';
+    const systemInstruction = `Bạn là Trợ lý AI lập lịch trình du lịch chuyên nghiệp của CloudMood.
+Nhiệm vụ của bạn là sắp xếp các địa điểm từ danh sách CSDL được cung cấp thành một lịch trình du lịch ${days} ngày hợp lý, thú vị và tuân thủ nghiêm ngặt tất cả các ràng buộc.
 
-    if (pLower.includes('thong thả')) {
-      minPlacesPerDay = 4; // 'Thong thả' (3-4 điểm, tối ưu là 4)
-      pacePromptInstruction = '- NHỊP ĐỘ THONG THẢ (3-4 ĐIỂM/NGÀY): BẮT BUỘC MỖI NGÀY PHẢI CÓ TỪ 3 ĐẾN 4 ĐỊA ĐIỂM (TỐI ƯU LÀ 4 ĐỊA ĐIỂM).';
-    } else if (pLower.includes('dày đặc')) {
-      minPlacesPerDay = 6; // 'Dày đặc' (6 điểm)
-      pacePromptInstruction = '- NHỊP ĐỘ DÀY ĐẶC (6 ĐIỂM/NGÀY): BẮT BUỘC MỖI NGÀY PHẢI CÓ ĐỦ 6 ĐỊA ĐIỂM CHẤT LƯỢNG.';
-    }
+= = = CÁC RÀNG BUỘC CHUNG = = =
+1. ĐỊA ĐIỂM THỰC TẾ: Chỉ chọn địa điểm có trong danh sách JSON được cung cấp (khớp ID và tên). TUYỆT ĐỐI không bịa đặt địa điểm hoặc tự tạo ID mới.
+2. ĐỐI TƯỢNG ĐỒNG HÀNH: "${companion || 'Tự do'}". Chọn địa điểm có phong cách phù hợp (Ví dụ: Cặp đôi -> Lãng mạn, view đẹp; Gia đình -> Không gian an toàn, phù hợp mọi lứa tuổi).
+3. KHÁCH SẠN ANCHOR: Khách sạn CHỈ được phép xuất hiện 1 lần duy nhất vào Slot Check-in (13:30) của NGÀY 1 (Khách sạn "${anchorHotel.name}", ID: ${anchorHotel.id}). Tuyệt đối CẤM xếp Khách sạn vào Ngày 2, Ngày 3 trở đi trong toàn bộ chuyến đi!
 
-    const systemInstruction = `Bạn là AI Agent Chuyên gia Lập & Điều phối Lịch trình Du lịch Thông minh số 1 của ứng dụng CloudMood.
-Nhiệm vụ: Thấu hiểu NGỮ CẢNH sâu sắc từ INPUT người dùng, kết hợp dữ liệu thực tế 100% từ CSDL Cloudmood và Bộ Thước Đo Luật để xây dựng lịch trình ${days} ngày tối ưu nhất.
+= = = CẤU TRÚC LỊCH TRÌNH LINH HOẠT (7, 8 HOẶC 9 SLOT/NGÀY) = = =
+Mỗi ngày trong lịch trình có thể chứa 7, 8 hoặc 9 địa điểm (tương ứng với số lượng slot hoạt động). Hãy tự động chọn hoặc phân bổ ngẫu nhiên số lượng địa điểm phù hợp (từ 7 đến 9 điểm/ngày) giữa các ngày để tạo sự đa dạng (không bắt buộc ngày nào cũng 9 slot).
 
-PHÂN TÍCH CHÂN DUNG CHUYẾN ĐI (USER CONTEXT):
-- Điểm đến: ${destination} (${days} ngày)
-- Nhịp độ: ${pace || 'Vừa phải'}
-- Bạn đồng hành: ${companion || 'Tự do'} (Hãy chọn địa điểm phù hợp với phong cách đối tượng này: Cặp đôi -> Lãng mạn/View đẹp; Gia đình -> An toàn/Rộng rãi; Bạn bè -> Năng động/Check-in).
-- Ngân sách: ${budget || 'Vừa phải'}
-- Sở thích Văn bản (70% Trọng số tối cao): "${customRequest || 'Không có'}"
-  -> AI hãy đọc kỹ các ĐỊA ĐIỂM TÊN RIÊNG VÀ SỞ THÍCH trong văn bản này.
-  ${isBienDongRequested ? `-> BẮT BUỘC: Khách yêu cầu ăn ở Nhà Hàng Biển Đông! BẮT BUỘC chọn "Nhà Hàng Biển Đông" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Biển Đông'))?.id || 1185}) cho 1 bữa ăn trưa hoặc tối.` : ''}
-  ${isNinhKieuRequested ? `-> BẮT BUỘC: Khách muốn đi Cầu/Bến Ninh Kiều buổi tối! BẮT BUỘC chọn "Cầu Đi Bộ Bến Ninh Kiều" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Ninh Kiều'))?.id || 1170}) vào BUỔI TỐI (18:30 - 21:30).` : ''}
-  ${isChuaRequested ? `-> BẮT BUỘC: Khách muốn đi Chùa, hãy chọn 1-2 ngôi Chùa trong danh sách: ${chuaPlaces.map((c) => `${c.name} (ID: ${c.id})`).join(', ')}. KHÔNG ĐƯỢC XẾP NỀN NỀN CÁC NGÔI CHÙA LIÊN TIẾP CÙNG 1 BUỔI SÁNG.` : ''}
-  ${resolvedDayConstraints.map((c) => `-> BẮT BUỘC THEO YÊU CẦU ĐẶC BIỆT CỦA KHÁCH: Địa điểm "${c.place.name}" (ID: ${c.place.id}) BẮT BUỘC PHẢI ĐƯỢC XẾP VÀO NGÀY ${c.targetDay} (theo đúng yêu cầu "${c.rawQuery} ${c.dayLabel}"). TUYỆT ĐỐI KHÔNG XẾP SANG NGÀY KHÁC!`).join('\n')}
+Quy tắc sắp xếp theo số lượng slot:
+- Nếu ngày có 7 slot: Ăn sáng -> Đi chơi cữ 1 -> Ăn trưa -> Nghỉ ngơi/Cafe/Check-in KS -> Đi chơi cữ 2 -> Ăn tối -> Vui chơi tối/Cafe nhẹ.
+- Nếu ngày có 8 slot: Ăn sáng -> Đi chơi cữ 1 -> Đi chơi cữ 2 -> Ăn trưa -> Nghỉ ngơi/Cafe/Check-in KS -> Đi chơi cữ 3 -> Ăn tối -> Vui chơi tối/Cafe nhẹ.
+- Nếu ngày có 9 slot: Xếp đầy đủ: Ăn sáng -> Đi chơi cữ 1 -> Đi chơi cữ 2 -> Ăn trưa -> Nghỉ ngơi/Cafe/Check-in KS -> Đi chơi cữ 3 -> Ăn tối -> Vui chơi tối -> Cafe nhẹ cuối ngày/Về KS.
 
-======================================================================
-THUẬT TOÁN PHÂN LOẠI ĐỊA ĐIỂM TỰ ĐỘNG (Dựa trên thông tin có sẵn trong CSDL)
-======================================================================
-- EARLY_MORNING (05:30 - 07:30): Chợ nổi (Chợ nổi Cái Răng), ngắm bình minh trên sông.
-- NOON_REST (12:30 - 14:30): Quán ăn trưa, Nhà hàng, Quán Cà phê máy lạnh, Khách sạn nghỉ ngơi.
-- NIGHT_ONLY (18:30 - 21:30): Chợ đêm, Cầu đi bộ (Cầu Ninh Kiều), Bến tàu/Du thuyền đêm, Phố đi bộ, Pub/Bar, Cà phê view đêm.
-- DAYTIME (08:30 - 11:30 & 15:00 - 17:30): Chùa, Bảo tàng, Di tích lịch sử, Khu du lịch sinh thái, Vườn trái cây.
+= = = QUY TẮC PHÂN BỔ THỜI GIAN BUỔI TỐI (BẮT BUỘC) = = =
+- SLOT CUỐI CÙNG trong ngày (Slot 7 của ngày 7 slot, Slot 8 của ngày 8 slot, Slot 9 của ngày 9 slot) BẮT BUỘC chỉ được xếp là Quán Cà phê (Cafe) hoặc Điểm ngắm cảnh đêm. TUYỆT ĐỐI không xếp địa điểm tham quan như bảo tàng, chùa chiền, khu di tích, vườn sinh thái hay địa danh thiên nhiên vào slot này.
+- SLOT SÁT CUỐI (Slot 7 của ngày 9 slot hoặc Slot 8 của ngày 10 slot) là thời gian vui chơi tối: Chỉ xếp địa điểm vui chơi buổi tối thích hợp như: Trung tâm thương mại (Vincom, Sense City...), Chợ đêm, Phố đi bộ, Cầu đi bộ Bến Ninh Kiều, hoặc quán Cà phê/Ăn vặt. TUYỆT ĐỐI CẤM xếp các điểm tham quan ban ngày như Bảo tàng, Chùa, Thiền viện, Vườn sinh thái, Vườn trái cây, Lò hủ tiếu vào các slot tối (từ 19:30 trở đi).
 
-======================================================================
-CÁC RÀNG BUỘC CỨNG VỀ THỜI GIAN & ĐỊA LÝ (HARD CONSTRAINTS)
-======================================================================
-1. QUY TẮC ĐẶC THÙ THỜI GIAN:
-   - SÁNG SỚM (05:30 - 07:30): Nếu điểm đến là "Cần Thơ" và có "Chợ nổi Cái Răng", BẮT BUỘC xếp Chợ Nổi vào vị trí ĐẦU TIÊN (Place 1) của Ngày 1, sau đó mới đến điểm điểm tâm sáng.
-   - TRÁNH NẮNG TRƯA (12:30 - 14:30): TUYỆT ĐỐI KHÔNG xếp các địa điểm ngoài trời, sông nước, di tích, khu sinh thái không có mái che vào khung giờ này. Chỉ xếp ăn trưa và cà phê nghỉ ngơi.
-   - BUỔI TỐI (18:30 - 21:30): Chỉ chọn địa điểm NIGHT_ONLY, Nhà hàng ăn tối hoặc Cà phê. TUYỆT ĐỐI KHÔNG xếp Chùa, Bảo tàng, Di tích lịch sử vào buổi tối.
-2. QUY TẮC PHÂN BỔ NHỊP SINH HOẠT & CỤM ĐỊA LÝ:
-   - Mở đầu ngày (07:00 - 08:30) bắt buộc là Ăn sáng / Cà phê sáng (trừ trường hợp đi Chợ nổi).
-   - Tối ưu cụm địa lý (< 5km): Các địa điểm được chọn trong cùng một Buổi (Sáng / Chiều / Tối) BẮT BUỘC phải nằm gần nhau (bán kính di chuyển giữa 2 điểm liên tiếp < 5km).
-   - Xen kẽ loại hình: Tuyệt đối không xếp 2 điểm cùng thể loại liên tiếp (Cấm 2 nhà hàng liên tiếp, Cấm 2 chùa liên tiếp).
-   - KHOẢNG NGHỈ VÀ DI CHUYỂN (30 - 45 PHÚT): Khoảng nghỉ giữa điểm kết thúc của địa điểm trước (endTime) và điểm bắt đầu của địa điểm kế tiếp (startTime) BẮT BUỘC TỪ 30 ĐẾN 45 PHÚT để du khách di chuyển và nghỉ ngơi thoải mái. TUYỆT ĐỐI KHÔNG xếp khoảng nghỉ quá sát (dưới 30 phút).
-3. CHỈ DÙNG ID ĐỊA ĐIỂM CÓ TRONG DANH SÁCH JSON BÊN DƯỚI. TUYỆT ĐỐI KHÔNG BỊA ĐỊA ĐIỂM HOẶC ID MỚI.
-4. Trả về JSON thuần túy theo đúng format.
+LƯU Ý QUAN TRỌNG: Tất cả các trường hợp đều phải bắt buộc có đủ 3 bữa ăn (Ăn sáng, Ăn trưa, Ăn tối) nằm xen kẽ với các điểm đi chơi/cà phê.
 
-FORMAT JSON TRẢ VỀ:
+= = = QUY TẮC CẤM LIÊN TIẾP = = =
+- CẤM xếp 2 địa điểm ăn uống (Nhà hàng, Quán ăn, Cà phê) liên tiếp nhau.
+- CẤM xếp 2 địa điểm khách sạn liên tiếp nhau (Và Ngày 2 trở đi CẤM HOÀN TOÀN khách sạn).
+- CẤM xếp 2 địa điểm cùng danh mục chi tiết liên tiếp nhau (Ví dụ: 2 siêu thị kề nhau, 2 trung tâm thương mại kề nhau).
+- NGOẠI LỆ DUY NHẤT: Slot 1 & Slot 2 (2 địa điểm đi chơi buổi sáng) được phép xếp liên tiếp nhưng phải là 2 địa điểm khác nhau.
+
+= = = YÊU CẦU ĐẶC BIỆT CỦA KHÁCH (TRỌNG SỐ CAO NHẤT) = = =
+Phải đọc kỹ yêu cầu văn bản của khách để xếp đúng địa điểm và đúng ngày:
+${isBienDongRequested ? `- BẮT BUỘC: Khách yêu cầu ăn ở Nhà Hàng Biển Đông! BẮT BUỘC chọn "Nhà Hàng Biển Đông" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Biển Đông'))?.id || 1185}) cho 1 bữa ăn trưa hoặc tối.` : ''}
+${isNinhKieuRequested ? `- BẮT BUỘC: Khách muốn đi Cầu/Bến Ninh Kiều buổi tối! BẮT BUỘC chọn "Cầu Đi Bộ Bến Ninh Kiều" (ID: ${specificNamedPlaces.find((s) => s.name.includes('Ninh Kiều'))?.id || 1170}) vào BUỔI TỐI (Slot 7 hoặc 8).` : ''}
+${isChuaRequested ? `- BẮT BUỘC: Khách muốn đi Chùa, hãy chọn 1-2 ngôi Chùa trong danh sách: ${chuaPlaces.map((c) => `${c.name} (ID: ${c.id})`).join(', ')}. KHÔNG xếp liên tiếp các ngôi chùa trong cùng một buổi sáng.` : ''}
+${resolvedDayConstraints.map((c) => `- BẮT BUỘC: Xếp địa điểm "${c.place.name}" (ID: ${c.place.id}) vào đúng Ngày ${c.targetDay}.`).join('\n')}
+
+= = = ĐỊNH DẠNG ĐẦU RA JSON = = =
+Trả về cấu trúc JSON thuần túy, hợp lệ, không chứa ký tự markdown hay văn bản ngoài JSON.
+Format mẫu:
 {
   "days": [
     {
       "dayNumber": 1,
-      "dayTitle": "Tiêu đề ngày 1 sinh động, đúng chủ đề",
+      "dayTitle": "Ngày 1: Tiêu đề ngày ngắn gọn, hấp dẫn",
       "places": [
         {
-          "placeId": 123,
-          "startTime": "08:30",
-          "endTime": "09:45",
-          "status": "UNCHANGED",
-          "note": "Ghi chú tinh tế giải thích lý do chọn địa điểm này cho khách (1-2 câu)"
+          "placeId": 12,
+          "note": "Giải thích ngắn gọn lý do chọn địa điểm này phù hợp với thời điểm này trong ngày."
         }
       ]
     }
-  ],
-  "systemNote": "Ghi chú ngắn từ AI nếu có điều chỉnh thời gian đặc biệt"
+  ]
 }`;
 
     const userPrompt = `THÔNG TIN CHUYẾN ĐI:
@@ -1249,29 +1296,31 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
     };
 
 
-    // ─── STEP 5: CALL GEMINI AI ──────────────────────────────────────────────
+
+    // ─── STEP 5: CALL AI ENGINE (STRICTLY OPENAI) ───────────────────────────
     let rawText = '';
+    let parsed: any = null;
+
+    const useOpenAI = !!process.env.OPENAI_API_KEY;
+    if (!useOpenAI) {
+      throw new Error('Chưa cấu hình OPENAI_API_KEY trong tệp .env. Không thể tạo lịch trình.');
+    }
+
     try {
-      const response = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', payload);
-      const data = response.data as GeminiResponseData;
-      rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      this.logger.log('[AI SERVICE] Generating itinerary using OpenAI (gpt-4o)...');
+      const response = await this.postOpenAIChatCompletion(systemInstruction, userPrompt);
+      rawText = response.data?.choices?.[0]?.message?.content || '';
+      if (!rawText) {
+        throw new Error('OpenAI phản hồi dữ liệu rỗng.');
+      }
+      parsed = JSON.parse(rawText.trim());
     } catch (error: any) {
-      this.logger.error('Gemini API error in generateItinerary', error?.message);
-      throw new Error(`Trợ lý AI gặp lỗi khi tạo lịch trình: ${error?.message || 'Không xác định'}. Vui lòng thử lại.`);
+      this.logger.error(`[OPENAI ERROR] Failed to generate itinerary: ${error?.message || error}`);
+      throw new Error(`Lỗi kết nối OpenAI hoặc phản hồi không hợp lệ: ${error?.message || error}`);
     }
 
-    if (!rawText) {
-      throw new Error('Trợ lý AI không trả về kết quả. Vui lòng thử lại sau.');
-    }
-
-    // ─── STEP 6: PARSE & SANITIZE ────────────────────────────────────────────
-    let parsed: any;
-    try {
-      const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-      parsed = JSON.parse(cleaned);
-    } catch {
-      this.logger.error('Failed to parse Gemini JSON response', rawText.substring(0, 500));
-      throw new Error('Trợ lý AI trả về dữ liệu không hợp lệ. Vui lòng thử lại.');
+    if (!parsed || !parsed.days || parsed.days.length === 0) {
+      throw new Error('Kết quả trả về từ OpenAI không chứa dữ liệu ngày hợp lệ.');
     }
 
     const validIdSet = new Set(candidatePlaces.map((p) => Number(p.id)));
@@ -1298,205 +1347,24 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
       };
     });
 
-    // ─── STEP 7: DAILY RHYTHM & ALTERNATING SANITIZER ─────────────
-    for (const day of validatedDays) {
-      // 1. Tự động bù đắp địa điểm cho đủ định mức số lượng địa điểm/ngày
-      while (day.places.length < minPlacesPerDay) {
-        const unusedCandidate = candidatePlaces.find(
-          (cp) => !usedIdSet.has(Number(cp.id)) && !this.ruleEngine.isVagueOrInvalidPlaceName(cp.name, cleanDest),
-        );
-        if (!unusedCandidate) break;
+    const isEarlyMarketPresent = specificNamedPlaces.some((s) => (s.name || '').toLowerCase().includes('chợ nổi')) || mustVisitPlaces.some((s) => (s.name || '').toLowerCase().includes('chợ nổi'));
+    const minPlacesPerDay = isEarlyMarketPresent && destination.toLowerCase().includes('cần thơ') ? 8 : 7;
+    const maxPlacesPerDay = isEarlyMarketPresent && destination.toLowerCase().includes('cần thơ') ? 10 : 9;
 
-        const pid = Number(unusedCandidate.id);
-        usedIdSet.add(pid);
-        day.places.push({
-          placeId: pid,
-          note: `Ghé thăm ${unusedCandidate.name} (${unusedCandidate.category?.name || 'Điểm đến'}) cho lịch trình trọn vẹn của bạn.`,
-        });
-      }
-
-      // 2. Kiểm tra & Bắt buộc Địa điểm mở đầu ngày (07:00-08:30) phải là Bữa Ăn/Cà phê
-      if (day.places.length > 0) {
-        const firstPlaceObj = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[0].placeId));
-        const firstCat = ((firstPlaceObj?.category?.name || '') + ' ' + (firstPlaceObj?.name || '')).toLowerCase();
-        const isFirstDining = firstCat.includes('quán') || firstCat.includes('nhà hàng') || firstCat.includes('cà phê') || firstCat.includes('phở') || firstCat.includes('bún');
-
-        if (!isFirstDining) {
-          const unusedBreakfast = candidatePlaces.find(
-            (cp) =>
-              !usedIdSet.has(Number(cp.id)) &&
-              ((cp.category?.name || '') + ' ' + (cp.name || '')).toLowerCase().match(/(cà phê|cafe|bún|phở|quán|nhà hàng)/i),
-          );
-          if (unusedBreakfast) {
-            const pid = Number(unusedBreakfast.id);
-            usedIdSet.add(pid);
-            day.places.unshift({
-              placeId: pid,
-              note: `Thưởng thức điểm tâm sáng & cà phê nạp năng lượng tại ${unusedBreakfast.name}.`,
-            });
-          }
-        }
-      }
-
-      // 3. Tách rời nếu có 2 ngôi Chùa / Tham quan bị xếp liên tiếp cùng một buổi
-      for (let i = 0; i < day.places.length - 1; i++) {
-        const p1 = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[i].placeId));
-        const p2 = candidatePlaces.find((cp) => Number(cp.id) === Number(day.places[i + 1].placeId));
-
-        const cat1 = this.ruleEngine.getGeneralCategoryGroup(p1);
-        const cat2 = this.ruleEngine.getGeneralCategoryGroup(p2);
-
-        // 3a. Nếu 2 điểm tham quan liên tiếp ➔ Chèn 1 quán ăn/cà phê vào giữa
-        if (cat1 === 'ATTRACTION' && cat2 === 'ATTRACTION') {
-          const unusedFood = candidatePlaces.find(
-            (cp) =>
-              !usedIdSet.has(Number(cp.id)) &&
-              ['DINING', 'CAFE'].includes(this.ruleEngine.getGeneralCategoryGroup(cp)),
-          );
-
-          if (unusedFood) {
-            const pid = Number(unusedFood.id);
-            usedIdSet.add(pid);
-            day.places.splice(i + 1, 0, {
-              placeId: pid,
-              note: `Nghỉ chân và dùng bữa tại ${unusedFood.name} giữa các điểm tham quan.`,
-            });
-            i++;
-          }
-        }
-        // 3b. Nếu 2 điểm Ăn uống / Quán ăn / Nhà hàng (DINING) liên tiếp ➔ Chèn 1 điểm tham quan vào giữa
-        else if (cat1 === 'DINING' && cat2 === 'DINING') {
-          const unusedAttraction = candidatePlaces.find(
-            (cp) =>
-              !usedIdSet.has(Number(cp.id)) &&
-              this.ruleEngine.getGeneralCategoryGroup(cp) === 'ATTRACTION',
-          );
-
-          if (unusedAttraction) {
-            const pid = Number(unusedAttraction.id);
-            usedIdSet.add(pid);
-            day.places.splice(i + 1, 0, {
-              placeId: pid,
-              note: `Tham quan ${unusedAttraction.name} để giải trí giữa các bữa ăn.`,
-            });
-            i++;
-          }
-        }
-      }
-    }
-
-    // ─── STEP 8: POST-VALIDATION SAFETY NET FOR NAMED PLACES ──
-    // 8a. Auto-inject Nhà Hàng Biển Đông nếu khách có yêu cầu mà AI bỏ sót
-    if (isBienDongRequested) {
-      const bienDongPlace = candidatePlaces.find((cp) => (cp.name || '').toLowerCase().includes('biển đông'));
-      if (bienDongPlace) {
-        let hasBienDong = false;
-        for (const d of validatedDays) {
-          if (d.places.some((p: any) => Number(p.placeId) === Number(bienDongPlace.id))) {
-            hasBienDong = true;
-            break;
-          }
-        }
-        if (!hasBienDong && validatedDays.length > 0) {
-          const targetDay = validatedDays[0];
-          targetDay.places.push({
-            placeId: Number(bienDongPlace.id),
-            note: `Thưởng thức hải sản tươi ngon đặc sắc tại ${bienDongPlace.name} theo đúng sở thích của bạn.`,
-          });
-          this.logger.log(`[SAFETY NET] Auto-injected ${bienDongPlace.name} (ID: ${bienDongPlace.id}) into Day ${targetDay.dayNumber}.`);
-        }
-      }
-    }
-
-    // 8b. Auto-inject Cầu Ninh Kiều vào buổi tối nếu khách có yêu cầu mà AI bỏ sót
-    if (isNinhKieuRequested) {
-      const ninhKieuPlace = candidatePlaces.find((cp) => (cp.name || '').toLowerCase().includes('ninh kiều'));
-      if (ninhKieuPlace) {
-        let hasNinhKieu = false;
-        for (const d of validatedDays) {
-          if (d.places.some((p: any) => Number(p.placeId) === Number(ninhKieuPlace.id))) {
-            hasNinhKieu = true;
-            break;
-          }
-        }
-        if (!hasNinhKieu && validatedDays.length > 0) {
-          const targetDay = validatedDays[0];
-          targetDay.places.push({
-            placeId: Number(ninhKieuPlace.id),
-            note: `Dạo bước ngắm cảnh lung linh về đêm tại ${ninhKieuPlace.name}.`,
-          });
-          this.logger.log(`[SAFETY NET] Auto-injected ${ninhKieuPlace.name} (ID: ${ninhKieuPlace.id}) into Day ${targetDay.dayNumber}.`);
-        }
-      }
-    }
-
-    // 8c. Auto-inject Chùa nếu khách có yêu cầu mà AI bỏ sót
-    if (isChuaRequested && chuaPlaces.length > 0) {
-      let containsChua = false;
-      for (const d of validatedDays) {
-        for (const p of d.places) {
-          const matchChua = candidatePlaces.find((cp) => Number(cp.id) === Number(p.placeId));
-          if (matchChua) {
-            const nameL = (matchChua.name || '').toLowerCase();
-            const catL = (matchChua.category?.name || '').toLowerCase();
-            if (nameL.includes('chùa') || nameL.includes('thiền viện') || nameL.includes('tịnh xá') || nameL.includes('pagoda') || catL.includes('chùa')) {
-              containsChua = true;
-              break;
-            }
-          }
-        }
-      }
-
-      // Nếu AI trót bỏ sót Chùa, Backend tự động thay thế 1 điểm tham quan Ngày 2 bằng Chùa top 1 từ DB
-      if (!containsChua && validatedDays.length > 0) {
-        const topChua = chuaPlaces[0];
-        const targetDay = validatedDays[1] || validatedDays[0];
-        if (targetDay && targetDay.places.length > 1) {
-          targetDay.places[1] = {
-            placeId: Number(topChua.id),
-            note: `Viếng ${topChua.name} thanh tịnh, cầu bình an cho gia đình theo đúng nguyện vọng chuyến đi của bạn.`,
-          };
-          this.logger.log(`[SAFETY NET] Auto-injected Chùa ${topChua.name} (ID: ${topChua.id}) into Day ${targetDay.dayNumber}.`);
-        }
-      }
-    }
-
-    // 8d. Tự động áp đặt Ràng buộc Ngày chỉ định (Day Constraint Safety Net) nếu AI trót xếp sai ngày hoặc bỏ sót
-    for (const constraint of resolvedDayConstraints) {
-      const { place, targetDay } = constraint;
-      const targetDayObj = validatedDays.find((d: any) => d.dayNumber === targetDay);
-      if (!targetDayObj) continue;
-
-      const isAlreadyInTargetDay = targetDayObj.places.some(
-        (p: any) => Number(p.placeId) === Number(place.id),
-      );
-
-      if (!isAlreadyInTargetDay) {
-        // Xóa địa điểm khỏi bất kỳ ngày nào khác nếu AI trót xếp nhầm
-        for (const d of validatedDays) {
-          if (d.dayNumber !== targetDay) {
-            d.places = d.places.filter(
-              (p: any) => Number(p.placeId) !== Number(place.id),
-            );
-          }
-        }
-
-        // Chèn địa điểm vào đúng Ngày yêu cầu
-        targetDayObj.places.push({
-          placeId: Number(place.id),
-          note: `Ghé thăm ${place.name} vào Ngày ${targetDay} theo đúng mong muốn và yêu cầu sở thích của bạn.`,
-        });
-
-        this.logger.log(
-          `[DAY CONSTRAINT SAFETY NET] Enforced ${place.name} (ID: ${place.id}) into Day ${targetDay}.`,
-        );
-      }
-    }
-
-    // ─── STEP 9: BIOLOGICAL & GEOGRAPHIC ROUTE OPTIMIZER ────────────
+    // ─── STEP 7: STREAMLINED PIPELINE (PASS TO RULE-ENGINE BIOLOGICAL SCHEDULER & STRICT SANITIZER) ───
     const candidatePlacesMap = new Map<number, any>(candidatePlaces.map((cp) => [Number(cp.id), cp]));
+    const step9GlobalUsedIds = new Set<number>();
+    const finalOptimizedDays: any[] = [];
 
-    const finalOptimizedDays = validatedDays.map((d) => {
+    // Fetch weather info realtime cho city
+    let weatherData: any = null;
+    try {
+      weatherData = await this.weatherService.getWeatherForCity(cleanDest);
+    } catch {
+      /* ignore weather fetch failure fallback */
+    }
+
+    for (const d of validatedDays) {
       const placesWithTime = this.ruleEngine.sortDayPlacesByBiologicalSchedule(
         d.places,
         candidatePlacesMap,
@@ -1506,16 +1374,73 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
           customRequest,
           hasHotel: (dto as any).hasHotel !== false,
           isRainy,
+          globalUsedIds: step9GlobalUsedIds, // cross-day dedup
         },
       );
-      return {
-        ...d,
-        places: placesWithTime,
-      };
-    });
 
-    this.logger.log(`generateItinerary: ${finalOptimizedDays.length} days generated using Upgraded Rule-Engine (6 Hard Rules + Exception Matrix + Elastic Timeline).`);
-    return { days: finalOptimizedDays };
+      // Đánh dấu tất cả place trong ngày này là đã dùng
+      for (const p of placesWithTime) {
+        const pid = Number(p.placeId || p.id || p.place?.id);
+        if (pid) step9GlobalUsedIds.add(pid);
+      }
+
+      // LOẠI BỎ HOÀN TOÀN TRƯỜNG NOTE VÀ GẮN WEATHER REALTIME TRÊN TỪNG THẺ ĐỊA ĐIỂM
+      const cleanedPlaces = placesWithTime.map((p: any) => {
+        const { note, ...rest } = p;
+        return {
+          ...rest,
+          weatherForecast: weatherData ? {
+            temperature: weatherData.temperature || weatherData.temp || 28,
+            condition: weatherData.condition || weatherData.description || 'Nắng đẹp',
+            icon: weatherData.icon || '01d',
+            humidity: weatherData.humidity || null,
+          } : null,
+        };
+      });
+
+      finalOptimizedDays.push({
+        dayNumber: d.dayNumber,
+        dayTitle: d.dayTitle,
+        places: cleanedPlaces,
+      });
+    }
+
+    // THẦN HỘ VỆ SLOT (STRICT ENFORCER): Lọc và thanh trừng tuyệt đối 100% mọi điểm vi phạm cấm ở các slot
+    const strictlySanitizedDays = this.ruleEngine.strictSanitizeItinerarySlots(
+      finalOptimizedDays,
+      candidatePlacesMap,
+      destination,
+    );
+
+    this.logger.log(`generateItinerary: ${strictlySanitizedDays.length} days generated using Upgraded Rule-Engine (6 Hard Rules + OpenAI GPT + Strict Slot Sanitizer + Realtime Weather + Cross-Day Dedup + Stripped Note).`);
+    return { days: strictlySanitizedDays };
+  }
+
+  private generateFallbackItinerary(candidatePlaces: any[], days: number): any {
+    const daysArray: any[] = [];
+    let placeIdx = 0;
+
+    for (let d = 1; d <= days; d++) {
+      const placesList: any[] = [];
+      for (let s = 0; s < 9; s++) {
+        if (candidatePlaces.length > 0) {
+          const item = candidatePlaces[placeIdx % candidatePlaces.length];
+          placesList.push({
+            placeId: Number(item.id),
+            note: `Ghé thăm ${item.name} theo lịch trình du lịch của bạn.`,
+          });
+          placeIdx++;
+        }
+      }
+
+      daysArray.push({
+        dayNumber: d,
+        dayTitle: `Ngày ${d}: Khám phá điểm đến tuyệt vời`,
+        places: placesList,
+      });
+    }
+
+    return { days: daysArray };
   }
 
   // ============================================
@@ -1531,10 +1456,11 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
   }): Promise<{ success: boolean; replacementPlace: any }> {
     const { destination, currentLat, currentLng, oldPlaceId, isRainy, categoryNeeded } = dto;
 
-    // Fetch approved candidate places
+    // Fetch approved candidate places (bắt buộc phải có ảnh)
     const candidates = await this.prisma.place.findMany({
       where: {
         isApproved: true,
+        photos: { some: {} },
         id: { not: BigInt(oldPlaceId) },
         ...(destination
           ? {
@@ -1545,7 +1471,7 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
             }
           : {}),
       },
-      include: { category: true },
+      include: { category: true, photos: { take: 1 } },
       take: 100,
     });
 

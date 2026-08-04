@@ -24,7 +24,6 @@ export class TripConfigDto {
   days?: number;
   companions?: string;
   categories?: string[];
-  pace?: string;
   budget?: string;
   currency?: string;
 }
@@ -32,7 +31,6 @@ export class TripConfigDto {
 export class GenerateItineraryDto {
   destination: string;
   days: number;
-  pace: string;
   companion: string;
   budget: string;
   categories: string[];
