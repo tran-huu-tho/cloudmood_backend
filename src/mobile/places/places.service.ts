@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsService } from '../../shared/notifications/notifications.service';
 import axios from 'axios';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class PlacesService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private notificationsService: NotificationsService,
   ) {}
 
   async findAll(
@@ -409,7 +411,7 @@ export class PlacesService {
       }
     }
 
-    return this.prisma.place.create({
+    const newPlace = await this.prisma.place.create({
       data: {
         name: data.name,
         description: data.description || '',
@@ -427,5 +429,13 @@ export class PlacesService {
         isApproved: false, // Suggestions start as pending approval
       },
     });
+
+    this.notificationsService.addNotification(
+      'warning',
+      'Địa điểm mới cần được duyệt',
+      `Địa điểm "${newPlace.name}" (${newPlace.address || 'Chưa có địa chỉ'}) vừa được đề xuất và đang chờ admin phê duyệt.`
+    );
+
+    return newPlace;
   }
 }

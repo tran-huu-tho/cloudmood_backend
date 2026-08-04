@@ -84,14 +84,6 @@ export class RuleEngineService {
   private readonly logger = new Logger(RuleEngineService.name);
 
   /**
-   * QUY TẮC 4 (HARD RULE 4): LỌC BỎ ĐỊA ĐIỂM TÊN MỜ NHẠT / KHÔNG HỢP LỆ / <= 3 KÝ TỰ
-   */
-  isVagueOrInvalidPlaceName(name: string, destination: string): boolean {
-    // Không lọc bỏ bất kỳ địa điểm nào từ CSDL theo tên
-    return false;
-  }
-
-  /**
    * QUY TẮC 6 (HARD RULE 6): LỌC THEO PHÂN KHÚC NGÂN SÁCH (PRICE LEVEL HARD FILTER)
    */
   filterByBudget(places: any[], budgetTier?: string): any[] {

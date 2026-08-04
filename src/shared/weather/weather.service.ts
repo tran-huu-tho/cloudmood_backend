@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { NotificationsService } from '../notifications/notifications.service';
+import { GoogleGenAI } from '@google/genai';
 import axios from 'axios';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class WeatherService {
   private readonly logger = new Logger(WeatherService.name);
   private readonly apiKey: string;
   private readonly aiApiKeys: string[];
+  private readonly aiClient: GoogleGenAI | null = null;
   private recommendationsCache = new Map<
     string,
     { suggestions: any; updatedTime: number }
@@ -23,8 +25,13 @@ export class WeatherService {
     const rawAiKey = this.configService.get<string>('AI_API_KEY') || '';
     this.aiApiKeys = rawAiKey
       .split(',')
-      .map((k) => k.trim())
+      .map((k) => k.trim().replace(/^["']|["']$/g, ''))
       .filter(Boolean);
+
+    const apiKey = this.aiApiKeys[0];
+    if (apiKey) {
+      this.aiClient = new GoogleGenAI({ apiKey });
+    }
   }
 
   /**
@@ -99,6 +106,15 @@ export class WeatherService {
       return provinceMap[q];
     }
     return query;
+  }
+
+  private cleanCityDisplayName(name: string): string {
+    if (!name) return name;
+    return name
+      .replace(/^Thành phố\s+/i, '')
+      .replace(/^Tỉnh\s+/i, '')
+      .replace(/^City of\s+/i, '')
+      .trim();
   }
 
   async getWeatherForCity(cityName: string) {
@@ -325,6 +341,7 @@ export class WeatherService {
           province && !resolvedName.includes(province)
             ? `${resolvedName}, ${province}`
             : resolvedName;
+        resolvedName = this.cleanCityDisplayName(resolvedName);
 
         this.logger.log(
           `[Geocoding] Đã tìm thấy: ${cityName} -> ${resolvedName} (${lat}, ${lon})`,
@@ -651,29 +668,54 @@ export class WeatherService {
       rainForecast,
     };
 
-    let recommendedPlaces: any[] = [];
-    try {
-      const placesFromDb = await this.prisma.place.findMany({
-        where: {
-          category: {
-            name: { in: ruleBased.categories },
-          },
-        },
-        take: 3,
-        include: {
-          category: true,
-        },
-      });
+    // 1. Thử sinh gợi ý thông minh từ Gemini AI
+    const geminiResult = await this.getGeminiSuggestions(
+      condition,
+      temp,
+      humidity,
+      windSpeed,
+      cityName,
+      defaultRain,
+    );
 
-      recommendedPlaces = placesFromDb.map((p) => ({
-        id: Number(p.id),
-        name: p.name,
-        category: p.category.name,
-        address: p.address,
-        reason: `Địa điểm lý tưởng phù hợp cho thời tiết "${condition}" với tâm trạng "${ruleBased.mood}".`,
-      }));
-    } catch (err) {
-      this.logger.warn(`Lỗi lấy địa điểm gợi ý Rule-based: ${err.message}`);
+    if (geminiResult) {
+      this.recommendationsCache.set(cacheKey, {
+        suggestions: geminiResult,
+        updatedTime: recordTime,
+      });
+      return geminiResult;
+    }
+
+    // 2. Fallback về Rule-based nếu Gemini AI chưa sẵn sàng hoặc lỗi
+    const isCanTho = ['can tho', 'cần thơ'].some((k) =>
+      cityName.toLowerCase().includes(k),
+    );
+
+    let recommendedPlaces: any[] = [];
+    if (isCanTho) {
+      try {
+        const placesFromDb = await this.prisma.place.findMany({
+          where: {
+            category: {
+              name: { in: ruleBased.categories },
+            },
+          },
+          take: 3,
+          include: {
+            category: true,
+          },
+        });
+
+        recommendedPlaces = placesFromDb.map((p) => ({
+          id: Number(p.id),
+          name: p.name,
+          category: p.category.name,
+          address: p.address,
+          reason: `Địa điểm lý tưởng tại Cần Thơ phù hợp cho thời tiết "${condition}" với tâm trạng "${ruleBased.mood}".`,
+        }));
+      } catch (err) {
+        this.logger.warn(`Lỗi lấy địa điểm gợi ý Rule-based: ${err.message}`);
+      }
     }
 
     const result: any = {
@@ -689,6 +731,143 @@ export class WeatherService {
     });
 
     return result;
+  }
+
+  /**
+   * Sinh gợi ý du lịch thông minh bằng Gemini AI kết hợp CSDL
+   */
+  private async getGeminiSuggestions(
+    condition: string,
+    temp: number,
+    humidity: number,
+    windSpeed: number,
+    cityName: string,
+    defaultRain: { rainProbability: number; estimatedRainfall: number; rainForecast: string },
+  ) {
+    if (!this.aiClient) return null;
+
+    try {
+      // Truy vấn các danh mục thực tế từ Prisma DB
+      const dbCategories = await this.prisma.category.findMany({
+        select: { name: true },
+      });
+      const categoryNames = dbCategories.map((c) => c.name);
+
+      const isCanTho = ['can tho', 'cần thơ'].some((k) =>
+        cityName.toLowerCase().includes(k),
+      );
+
+      const prompt = `
+Bạn là chuyên gia tư vấn du lịch thông minh cho ứng dụng CloudMood.
+Hãy phân tích thời tiết hiện tại của địa điểm:
+- Thành phố: ${cityName}
+- Trạng thái thời tiết: ${condition}
+- Nhiệt độ: ${temp}°C
+- Độ ẩm: ${humidity}%
+- Tốc độ gió: ${windSpeed} m/s
+
+Danh sách các danh mục địa điểm có sẵn trong cơ sở dữ liệu hệ thống: [${categoryNames.join(', ')}].
+
+Yêu cầu: Hãy đưa ra gợi ý du lịch thông minh dạng JSON chuẩn (không dùng markdown codeblock, không thêm bất kỳ văn bản giải thích nào khác) đúng cấu trúc sau:
+{
+  "mood": "Tâm trạng gợi ý ngắn gọn (Ví dụ: Thư Thái & Dạo Mát / Tránh Nắng & Mát Mẻ / Tránh Bão & An Toàn / Săn Mây & Thưởng Thức Café)",
+  "activities": ["Hoạt động 1", "Hoạt động 2", "Hoạt động 3", "Hoạt động 4"],
+  "categories": ["Tên danh mục 1", "Tên danh mục 2"],
+  "tips": ["Lời khuyên 1", "Lời khuyên 2", "Lời khuyên 3"],
+  "rainForecast": "Nhận định ngắn gọn về thời tiết và khả năng mưa trong ngày tại ${cityName}"
+}
+
+Lưu ý quan trọng:
+- Mảng "categories" BẮT BUỘC chỉ được chọn từ danh sách danh mục CSDL được cung cấp ở trên: [${categoryNames.join(', ')}].
+- Các hoạt động và lời khuyên viết bằng tiếng Việt ngắn gọn, tinh tế, phù hợp nhất với điều kiện thời tiết ${temp}°C và ${condition}.
+`;
+
+      const modelsToTry = [
+        'gemini-3.5-flash',
+        'gemini-3.6-flash',
+        'gemini-2.5-flash',
+        'gemini-2-flash',
+        'gemini-2.5-flash-lite',
+      ];
+
+      let rawResponse = '';
+      for (const modelName of modelsToTry) {
+        try {
+          const response = await this.aiClient.models.generateContent({
+            model: modelName,
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          });
+          rawResponse = response.text || '';
+          if (rawResponse) break;
+        } catch (err: any) {
+          this.logger.debug(
+            `Model Gemini [${modelName}] không phản hồi: ${err.message}`,
+          );
+        }
+      }
+
+      if (!rawResponse) return null;
+
+      // Làm sạch chuỗi JSON nếu Gemini trả về markdown ```json ... ```
+      let cleanedJson = rawResponse.trim();
+      if (cleanedJson.startsWith('```')) {
+        cleanedJson = cleanedJson
+          .replace(/^```[a-z]*\n?/i, '')
+          .replace(/\n?```$/i, '')
+          .trim();
+      }
+
+      const parsed = JSON.parse(cleanedJson);
+
+      if (!parsed.mood || !Array.isArray(parsed.activities)) {
+        return null;
+      }
+
+      // ĐỊA ĐIỂM CSDL: CHỈ TRUY VẤN NẾU LÀ CẦN THƠ, CÁC TỈNH KHÁC ĐẶT RỖNG
+      let recommendedPlaces: any[] = [];
+      if (
+        isCanTho &&
+        Array.isArray(parsed.categories) &&
+        parsed.categories.length > 0
+      ) {
+        const placesFromDb = await this.prisma.place.findMany({
+          where: {
+            category: {
+              name: { in: parsed.categories },
+            },
+          },
+          take: 4,
+          include: {
+            category: true,
+          },
+        });
+
+        recommendedPlaces = placesFromDb.map((p) => ({
+          id: Number(p.id),
+          name: p.name,
+          category: p.category.name,
+          address: p.address,
+          reason: `Địa điểm lý tưởng tại Cần Thơ phù hợp cho thời tiết "${condition}" với tâm trạng "${parsed.mood}".`,
+        }));
+      }
+
+      return {
+        source: 'Trợ lý AI Gemini',
+        rainProbability: defaultRain.rainProbability,
+        estimatedRainfall: defaultRain.estimatedRainfall,
+        rainForecast: parsed.rainForecast || defaultRain.rainForecast,
+        mood: parsed.mood,
+        activities: parsed.activities,
+        categories: parsed.categories || [],
+        tips: parsed.tips || [],
+        places: recommendedPlaces,
+      };
+    } catch (err: any) {
+      this.logger.warn(
+        `Lỗi khi gọi Gemini AI cho gợi ý thời tiết: ${err.message}`,
+      );
+      return null;
+    }
   }
 
   /**

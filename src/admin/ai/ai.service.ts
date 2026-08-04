@@ -6,10 +6,10 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 const PRIMARY_MODEL = 'gemini-3.5-flash';
 const FALLBACK_MODELS = [
+  'gemini-3.6-flash',
   'gemini-2.5-flash',
+  'gemini-2-flash',
   'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
 ];
 
 @Injectable()
@@ -23,7 +23,7 @@ export class AiService {
     private readonly notificationsService: NotificationsService,
   ) {
     const rawKey = this.configService.get<string>('AI_API_KEY') || '';
-    const apiKey = rawKey.split(',')[0].trim();
+    const apiKey = rawKey.split(',')[0].trim().replace(/^["']|["']$/g, '');
     if (apiKey) {
       this.client = new GoogleGenAI({ apiKey });
     }
@@ -294,44 +294,45 @@ export class AiService {
       } catch (err: any) {
         lastErr = err;
         const errMsg = (err?.message || '').toLowerCase();
-        const isModelUnavailable =
-          errMsg.includes('not found') ||
-          errMsg.includes('no longer available') ||
-          errMsg.includes('deprecated') ||
-          errMsg.includes('invalid') ||
-          err?.status === 404;
+        this.logger.error(`CloudBros AI Error [${modelName}]: message="${err?.message}", status=${err?.status}, stack=${err?.stack}`);
 
-        if (isModelUnavailable) {
-          this.logger.warn(`Model ${modelName} không khả dụng, thử model tiếp theo...`);
-          continue;
-        }
+        const isApiKeyError =
+          errMsg.includes('api key') ||
+          errMsg.includes('apikey') ||
+          errMsg.includes('unauthorized') ||
+          errMsg.includes('forbidden') ||
+          err?.status === 401 ||
+          err?.status === 403;
 
-        // Other errors (quota, overload, etc.) — return user-friendly message
-        const isQuotaOrService =
-          err?.status === 429 ||
-          err?.status === 503 ||
-          errMsg.includes('quota') ||
-          errMsg.includes('overloaded') ||
-          errMsg.includes('unavailable');
-
-        if (isQuotaOrService) {
+        if (isApiKeyError) {
           return {
-            text: 'Máy chủ AI hiện đang quá tải (Lỗi 503/429). Vui lòng chờ vài giây rồi thử lại 🙏',
+            text: `Lỗi API Key: Khóa AI_API_KEY không hợp lệ hoặc đã bị vô hiệu hóa. Vui lòng tạo API Key mới từ Google AI Studio (https://aistudio.google.com/app/apikey) và cập nhật file .env.`,
             widgets: [],
           };
         }
 
-        this.logger.error(`CloudBros AI Error [${modelName}]: ${err.message}`);
-        return {
-          text: `Lỗi kết nối AI: ${err.message}`,
-          widgets: [],
-        };
+        const isModelUnavailable =
+          errMsg.includes('not found') ||
+          errMsg.includes('no longer available') ||
+          errMsg.includes('deprecated') ||
+          err?.status === 404;
+
+        this.logger.warn(`Model ${modelName} gặp lỗi [${err?.status || '503'}], thử model tiếp theo...`);
+        continue;
       }
     }
 
     this.logger.error(`Tất cả model AI đều thất bại: ${lastErr?.message}`);
+    const lastMsg = (lastErr?.message || '').toLowerCase();
+    if (lastErr?.status === 429 || lastErr?.status === 503 || lastMsg.includes('high demand') || lastMsg.includes('quota')) {
+      return {
+        text: 'Máy chủ AI Gemini hiện đang quá tải cục bộ (Lỗi 503/429). Vui lòng chờ 10-15 giây rồi thử lại 🙏',
+        widgets: [],
+      };
+    }
+
     return {
-      text: 'Không thể kết nối tới bất kỳ model Gemini nào. Vui lòng thử lại sau.',
+      text: `Lỗi kết nối Gemini API (${lastErr?.status || 'Unknown'}): ${lastErr?.message || 'Không thể gọi AI'}`,
       widgets: [],
     };
   }

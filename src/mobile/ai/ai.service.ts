@@ -520,7 +520,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
           generationConfig: { temperature: 0.3 },
         };
         const titleResponse = await this.postWithKeyRotation(
-          'models/gemini-2.5-flash:generateContent',
+          'models/gemini-3.5-flash:generateContent',
           titlePayload,
         );
         const titleCandidates = titleResponse.data?.candidates;
@@ -601,7 +601,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
 
     let aiReply = 'Xin lỗi, có lỗi xảy ra.';
     try {
-      const response = await this.postWithKeyRotation('models/gemini-2.5-flash:generateContent', payload);
+      const response = await this.postWithKeyRotation('models/gemini-3.5-flash:generateContent', payload);
       const data = response.data as GeminiResponseData;
       const candidates = data?.candidates;
       if (candidates && candidates.length > 0) {
@@ -739,9 +739,11 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     let fullReply = '';
     try {
       const modelsToTry = [
+        'models/gemini-3.5-flash',
+        'models/gemini-3.6-flash',
         'models/gemini-2.5-flash',
-        'models/gemini-2.0-flash',
-        'models/gemini-1.5-flash',
+        'models/gemini-2-flash',
+        'models/gemini-2.5-flash-lite',
       ];
 
       let streamSuccess = false;
