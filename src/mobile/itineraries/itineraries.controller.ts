@@ -53,9 +53,17 @@ export class ItinerariesController {
 
   @Get()
   @UseGuards(AuthGuard('jwt'))
-  async findAll(@Request() req, @Query('isGuide') isGuide: string) {
+  async findAll(
+    @Request() req,
+    @Query('isGuide') isGuide: string,
+    @Query('userId') userId?: string,
+  ) {
+    const targetUserId =
+      userId && userId.trim() !== '' && userId !== 'undefined'
+        ? userId.trim()
+        : req.user.id.toString();
     return this.itinerariesService.findAllByUser(
-      req.user.id.toString(),
+      targetUserId,
       isGuide === 'true',
     );
   }

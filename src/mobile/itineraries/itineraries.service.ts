@@ -13,7 +13,7 @@ export class ItinerariesService implements OnModuleInit {
     private weatherService: WeatherService,
     private mailService: MailService,
     private itinerariesGateway: ItinerariesGateway,
-  ) {}
+  ) { }
 
   async onModuleInit() {
     await this.fixDb();
@@ -77,13 +77,25 @@ export class ItinerariesService implements OnModuleInit {
   }
 
   async findAllByUser(userId: string, isGuide: boolean = false) {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "Itinerary" SET "isGuide" = false WHERE "isGuide" IS NULL`,
+      );
+    } catch (_) {}
+
     const userBigInt = BigInt(userId);
     const itineraries = await this.prisma.itinerary.findMany({
       where: {
-        isGuide,
-        OR: [
-          { userId: userBigInt },
-          { members: { some: { userId: userBigInt } } },
+        AND: [
+          isGuide
+            ? { isGuide: true }
+            : { OR: [{ isGuide: false }, { isGuide: null }] },
+          {
+            OR: [
+              { userId: userBigInt },
+              { members: { some: { userId: userBigInt } } },
+            ],
+          },
         ],
       },
       include: {
@@ -193,7 +205,7 @@ export class ItinerariesService implements OnModuleInit {
     if (orphanDetailIds.length > 0) {
       this.prisma.itineraryDetail
         .deleteMany({ where: { id: { in: orphanDetailIds } } })
-        .catch(() => {}); // fire-and-forget, do not block response
+        .catch(() => { }); // fire-and-forget, do not block response
     }
 
     let weather: any = null;
@@ -1422,5 +1434,44 @@ export class ItinerariesService implements OnModuleInit {
       updatedAt: NOW.toISOString(),
     };
     return this.cachedRates;
+  }
+}
+    };
+
+try {
+  const response = await fetch('https://open.er-api.com/v6/latest/USD');
+  if (response.ok) {
+    const data = await response.json();
+    if (data && data.rates && data.rates.VND) {
+      const usdToVnd = Number(data.rates.VND);
+      const computedRates: Record<string, number> = { VND: 1.0 };
+
+      Object.keys(defaultRates).forEach((code) => {
+        if (code === 'VND') {
+          computedRates['VND'] = 1.0;
+        } else if (data.rates[code]) {
+          const codeRateToUsd = Number(data.rates[code]);
+          computedRates[code] = Math.round((usdToVnd / codeRateToUsd) * 100) / 100;
+        } else {
+          computedRates[code] = defaultRates[code];
+        }
+      });
+
+      this.cachedRates = {
+        rates: computedRates,
+        updatedAt: NOW.toISOString(),
+      };
+      return this.cachedRates;
+    }
+  }
+} catch (e) {
+  console.log('Using default currency rates fallback:', e);
+}
+
+this.cachedRates = {
+  rates: defaultRates,
+  updatedAt: NOW.toISOString(),
+};
+return this.cachedRates;
   }
 }
