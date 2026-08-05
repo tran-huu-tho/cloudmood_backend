@@ -585,21 +585,60 @@ export class ItinerariesService implements OnModuleInit {
   async updateDetail(id: number, data: any, updatedByUserId?: string) {
     try {
       const updateData = { ...data };
+      const updatePayload: any = {};
+
+      if (updateData.day !== undefined) updatePayload.day = updateData.day;
+      if (updateData.sortOrder !== undefined) updatePayload.sortOrder = updateData.sortOrder;
+      if (updateData.noteText !== undefined) updatePayload.noteText = updateData.noteText;
+      if (updateData.startTime !== undefined) updatePayload.startTime = updateData.startTime;
+      if (updateData.endTime !== undefined) updatePayload.endTime = updateData.endTime;
+      if (updateData.todoItems !== undefined) updatePayload.todoItems = updateData.todoItems;
+      if (updateData.reactions !== undefined) updatePayload.reactions = updateData.reactions;
+      if (updateData.isCollapsed !== undefined) updatePayload.isCollapsed = updateData.isCollapsed;
+
       if (updateData.placeId !== undefined) {
-        updateData.placeId = updateData.placeId !== null ? BigInt(updateData.placeId) : null;
+        if (updateData.placeId !== null) {
+          updatePayload.place = { connect: { id: BigInt(updateData.placeId) } };
+        } else {
+          updatePayload.place = { disconnect: true };
+        }
       }
-      if (updateData.itineraryId !== undefined) {
-        updateData.itineraryId = updateData.itineraryId !== null ? BigInt(updateData.itineraryId) : null;
-      }
+
+      console.log(`[UPDATE_DETAIL] Detail #${id} updating with payload:`, JSON.stringify(updatePayload, (key, value) => typeof value === 'bigint' ? value.toString() : value));
+
       const res = await this.prisma.itineraryDetail.update({
         where: { id: BigInt(id) },
-        data: updateData,
+        data: updatePayload,
+        include: { place: { include: { category: true, photos: true } } },
       });
+
+      console.log(`[UPDATE_DETAIL] Detail #${id} SUCCESS: new placeId = ${res.placeId}, placeName = ${res.place?.name}`);
       this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_DETAIL');
       return res;
-    } catch (err) {
-      console.warn(`updateDetail failed for record #${id}:`, err);
-      return null;
+    } catch (err: any) {
+      console.error(`[UPDATE_DETAIL] Detail #${id} Prisma update failed (${err.message}). Attempting RAW SQL update...`);
+      try {
+        if (data.placeId !== undefined) {
+          const pid = data.placeId !== null ? BigInt(data.placeId) : null;
+          await this.prisma.$executeRawUnsafe(
+            `UPDATE "ItineraryDetail" SET "placeId" = $1 WHERE "id" = $2`,
+            pid,
+            BigInt(id),
+          );
+          console.log(`[UPDATE_DETAIL] Detail #${id} RAW SQL fallback placeId update SUCCESS!`);
+          const refreshed = await this.prisma.itineraryDetail.findUnique({
+            where: { id: BigInt(id) },
+            include: { place: { include: { category: true, photos: true } } },
+          });
+          if (refreshed) {
+            this.itinerariesGateway.broadcastItineraryUpdate(refreshed.itineraryId.toString(), updatedByUserId, 'UPDATE_DETAIL');
+            return refreshed;
+          }
+        }
+      } catch (rawErr: any) {
+        console.error(`[UPDATE_DETAIL] Detail #${id} RAW SQL FAILED:`, rawErr.message || rawErr);
+      }
+      throw err;
     }
   }
 
@@ -630,21 +669,51 @@ export class ItinerariesService implements OnModuleInit {
   async updateSavedPlace(id: number, data: any, updatedByUserId?: string) {
     try {
       const updateData = { ...data };
+      const updatePayload: any = {};
+
+      if (updateData.section !== undefined) updatePayload.section = updateData.section;
+      if (updateData.sortOrder !== undefined) updatePayload.sortOrder = updateData.sortOrder;
+      if (updateData.noteText !== undefined) updatePayload.noteText = updateData.noteText;
+
       if (updateData.placeId !== undefined) {
-        updateData.placeId = updateData.placeId !== null ? BigInt(updateData.placeId) : null;
+        if (updateData.placeId !== null) {
+          updatePayload.place = { connect: { id: BigInt(updateData.placeId) } };
+        } else {
+          updatePayload.place = { disconnect: true };
+        }
       }
-      if (updateData.itineraryId !== undefined) {
-        updateData.itineraryId = updateData.itineraryId !== null ? BigInt(updateData.itineraryId) : null;
-      }
+
       const res = await this.prisma.itinerarySavedPlace.update({
         where: { id: BigInt(id) },
-        data: updateData,
+        data: updatePayload,
+        include: { place: { include: { category: true, photos: true } } },
       });
       this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_SAVED_PLACE');
       return res;
-    } catch (err) {
-      console.warn(`updateSavedPlace failed for record #${id}:`, err);
-      return null;
+    } catch (err: any) {
+      console.error(`[UPDATE_SAVED_PLACE] SavedPlace #${id} Prisma update failed (${err.message}). Attempting RAW SQL update...`);
+      try {
+        if (data.placeId !== undefined) {
+          const pid = data.placeId !== null ? BigInt(data.placeId) : null;
+          await this.prisma.$executeRawUnsafe(
+            `UPDATE "ItinerarySavedPlace" SET "placeId" = $1 WHERE "id" = $2`,
+            pid,
+            BigInt(id),
+          );
+          console.log(`[UPDATE_SAVED_PLACE] SavedPlace #${id} RAW SQL fallback placeId update SUCCESS!`);
+          const refreshed = await this.prisma.itinerarySavedPlace.findUnique({
+            where: { id: BigInt(id) },
+            include: { place: { include: { category: true, photos: true } } },
+          });
+          if (refreshed) {
+            this.itinerariesGateway.broadcastItineraryUpdate(refreshed.itineraryId.toString(), updatedByUserId, 'UPDATE_SAVED_PLACE');
+            return refreshed;
+          }
+        }
+      } catch (rawErr: any) {
+        console.error(`[UPDATE_SAVED_PLACE] SavedPlace #${id} RAW SQL FAILED:`, rawErr.message || rawErr);
+      }
+      throw err;
     }
   }
 
