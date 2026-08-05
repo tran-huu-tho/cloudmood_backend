@@ -196,7 +196,8 @@ model ItineraryDetail {
   sortOrder   Int      @default(0)
   placeId     BigInt?
   itineraryId BigInt
-  noteText    String?
+  noteText       String?
+  incidentReport String?
   todoItems   Json     @default("[]")
   reactions   Json     @default("[]")
   isCollapsed Boolean  @default(false)

@@ -584,14 +584,21 @@ export class ItinerariesService implements OnModuleInit {
 
   async updateDetail(id: number, data: any, updatedByUserId?: string) {
     try {
+      const updateData = { ...data };
+      if (updateData.placeId !== undefined) {
+        updateData.placeId = updateData.placeId !== null ? BigInt(updateData.placeId) : null;
+      }
+      if (updateData.itineraryId !== undefined) {
+        updateData.itineraryId = updateData.itineraryId !== null ? BigInt(updateData.itineraryId) : null;
+      }
       const res = await this.prisma.itineraryDetail.update({
         where: { id: BigInt(id) },
-        data,
+        data: updateData,
       });
       this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_DETAIL');
       return res;
     } catch (err) {
-      console.warn(`updateDetail skipped: record #${id} not found.`);
+      console.warn(`updateDetail failed for record #${id}:`, err);
       return null;
     }
   }
@@ -622,14 +629,21 @@ export class ItinerariesService implements OnModuleInit {
 
   async updateSavedPlace(id: number, data: any, updatedByUserId?: string) {
     try {
+      const updateData = { ...data };
+      if (updateData.placeId !== undefined) {
+        updateData.placeId = updateData.placeId !== null ? BigInt(updateData.placeId) : null;
+      }
+      if (updateData.itineraryId !== undefined) {
+        updateData.itineraryId = updateData.itineraryId !== null ? BigInt(updateData.itineraryId) : null;
+      }
       const res = await this.prisma.itinerarySavedPlace.update({
         where: { id: BigInt(id) },
-        data,
+        data: updateData,
       });
       this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_SAVED_PLACE');
       return res;
     } catch (err) {
-      console.warn(`updateSavedPlace skipped: record #${id} not found.`);
+      console.warn(`updateSavedPlace failed for record #${id}:`, err);
       return null;
     }
   }

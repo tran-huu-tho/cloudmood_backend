@@ -40,6 +40,11 @@ export class PrismaService
           `ALTER TABLE "Place" ADD COLUMN IF NOT EXISTS "isApproved" boolean DEFAULT true`,
         );
 
+        // Add incidentReport to ItineraryDetail table dynamically
+        await this.$executeRawUnsafe(
+          `ALTER TABLE "ItineraryDetail" ADD COLUMN IF NOT EXISTS "incidentReport" text`,
+        );
+
         console.log('Successfully added dynamic columns');
       } catch (e) {
         console.log('Columns already exist or error:', e.message);
