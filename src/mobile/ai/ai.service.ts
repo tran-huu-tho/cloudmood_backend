@@ -904,7 +904,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       this.pythonProcess.stderr?.on('data', (data) => {
         const message = data.toString().trim();
         if (message) {
-          // Tránh ghi log cảnh báo uvicorn reload/watch bình thường thành warning
           if (message.includes('INFO') || message.includes('Application startup complete')) {
             this.logger.log(`[Python AI] ${message}`);
           } else {
@@ -930,7 +929,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ============================================
-  // HYBRID RAG + GEMINI AI AGENT
+  // HYBRID RAG + OPENAI GPT AI AGENT
   // Generate full itinerary from DB context + AI reasoning
   // ============================================
 
@@ -960,7 +959,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     let candidatePlaces: any[] = await this.prisma.place.findMany({
       where: {
         isApproved: true,
-        photos: { some: {} }, // Chỉ lấy địa điểm có ảnh
         OR: [
           { address: { contains: cleanDest, mode: 'insensitive' } },
           { address: { contains: destination, mode: 'insensitive' } },
@@ -974,18 +972,17 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     });
 
     // Bổ sung thêm địa điểm từ DB nếu số lượng theo thành phố chưa đủ (Đảm bảo luôn thừa địa điểm cho tất cả các ngày)
-    const minRequiredPlaces = Math.max(36, days * 12);
+    const minRequiredPlaces = Math.max(100, days * 15);
     if (candidatePlaces.length < minRequiredPlaces) {
       const allExtraPlaces = await this.prisma.place.findMany({
         where: {
           isApproved: true,
-          photos: { some: {} },
         },
         include: {
           category: true,
           photos: { take: 1 },
         },
-        take: 100,
+        take: 300,
       });
       for (const ep of allExtraPlaces) {
         if (!candidatePlaces.some((cp) => Number(cp.id) === Number(ep.id))) {
@@ -1012,7 +1009,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const bienDongMatches = await this.prisma.place.findMany({
         where: {
           isApproved: true,
-          photos: { some: {} },
           name: { contains: 'Biển Đông', mode: 'insensitive' },
         },
         include: { category: true, photos: { take: 1 } },
@@ -1029,7 +1025,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const ninhKieuMatches = await this.prisma.place.findMany({
         where: {
           isApproved: true,
-          photos: { some: {} },
           OR: [
             { name: { contains: 'Ninh Kiều', mode: 'insensitive' } },
             { description: { contains: 'Ninh Kiều', mode: 'insensitive' } },
@@ -1049,7 +1044,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const dbChuas = await this.prisma.place.findMany({
         where: {
           isApproved: true,
-          photos: { some: {} },
           OR: [
             { name: { contains: 'Chùa', mode: 'insensitive' } },
             { name: { contains: 'Thiền viện', mode: 'insensitive' } },
@@ -1080,7 +1074,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
         const matches = await this.prisma.place.findMany({
           where: {
             isApproved: true,
-            photos: { some: {} },
             OR: [
               { name: { contains: kw, mode: 'insensitive' } },
               { description: { contains: kw, mode: 'insensitive' } },
@@ -1109,7 +1102,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       const matches = await this.prisma.place.findMany({
         where: {
           isApproved: true,
-          photos: { some: {} },
           OR: [
             { name: { contains: dc.rawPlaceQuery, mode: 'insensitive' } },
             { description: { contains: dc.rawPlaceQuery, mode: 'insensitive' } },
@@ -1126,7 +1118,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
           const subMatches = await this.prisma.place.findMany({
             where: {
               isApproved: true,
-              photos: { some: {} },
               OR: [
                 { name: { contains: skw, mode: 'insensitive' } },
                 { description: { contains: skw, mode: 'insensitive' } },
@@ -1158,14 +1149,9 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     }
 
     // ─── STEP 1c: FILTER OUT VAGUE / GENERIC PLACE NAMES (e.g. "Cần Thơ") ────
-    // Và BẮT BUỘC phải có ít nhất 1 ảnh đại diện — tuyệt đối không dùng địa điểm không có ảnh
     candidatePlaces = candidatePlaces.filter(
-      (p) =>
-        !this.ruleEngine.isVagueOrInvalidPlaceName(p.name, cleanDest) &&
-        Array.isArray(p.photos) &&
-        p.photos.length > 0,
+      (p) => !this.ruleEngine.isVagueOrInvalidPlaceName(p.name, cleanDest),
     );
-    this.logger.log(`[PHOTO FILTER] Candidates after photo filter: ${candidatePlaces.length}`);
 
     // ─── STEP 2: WEATHER CHECK FROM WEATHER SERVICE ───────────────────────────
     let isRainy = false;
@@ -1194,11 +1180,8 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       return { ...p, relevanceScore };
     });
 
-    // 1. Hard Rule: Lọc theo thời tiết
-    candidatePlaces = this.ruleEngine.filterByWeather(scoredPlaces, isRainy);
-
-    // 2. Hard Rule: Lọc theo ngân sách (Budget Filter)
-    candidatePlaces = this.ruleEngine.filterByBudget(candidatePlaces, budget);
+    // Keeping all approved places in candidate pool (no filtering out low score or price level places)
+    candidatePlaces = scoredPlaces;
 
     // Group candidates by role
     const { hotels, dining, cafes, activities } = this.ruleEngine.groupPlacesByRole(candidatePlaces);
@@ -1236,22 +1219,29 @@ Nhiệm vụ của bạn là sắp xếp các địa điểm từ danh sách CSD
 
 = = = CÁC RÀNG BUỘC CHUNG = = =
 1. ĐỊA ĐIỂM THỰC TẾ: Chỉ chọn địa điểm có trong danh sách JSON được cung cấp (khớp ID và tên). TUYỆT ĐỐI không bịa đặt địa điểm hoặc tự tạo ID mới.
-2. ĐỐI TƯỢNG ĐỒNG HÀNH: "${companion || 'Tự do'}". Chọn địa điểm có phong cách phù hợp (Ví dụ: Cặp đôi -> Lãng mạn, view đẹp; Gia đình -> Không gian an toàn, phù hợp mọi lứa tuổi).
+2. ĐỐI TƯỢNG ĐỒNG HÀNH: "${companion || 'Tự do'}". Chọn địa điểm có phong cách phù hợp.
 3. KHÁCH SẠN ANCHOR: Khách sạn CHỈ được phép xuất hiện 1 lần duy nhất vào Slot Check-in (13:30) của NGÀY 1 (Khách sạn "${anchorHotel.name}", ID: ${anchorHotel.id}). Tuyệt đối CẤM xếp Khách sạn vào Ngày 2, Ngày 3 trở đi trong toàn bộ chuyến đi!
 
-= = = CẤU TRÚC LỊCH TRÌNH LINH HOẠT (7, 8 HOẶC 9 SLOT/NGÀY) = = =
-Mỗi ngày trong lịch trình có thể chứa 7, 8 hoặc 9 địa điểm (tương ứng với số lượng slot hoạt động). Hãy tự động chọn hoặc phân bổ ngẫu nhiên số lượng địa điểm phù hợp (từ 7 đến 9 điểm/ngày) giữa các ngày để tạo sự đa dạng (không bắt buộc ngày nào cũng 9 slot).
 
-Quy tắc sắp xếp theo số lượng slot:
-- Nếu ngày có 7 slot: Ăn sáng -> Đi chơi cữ 1 -> Ăn trưa -> Nghỉ ngơi/Cafe/Check-in KS -> Đi chơi cữ 2 -> Ăn tối -> Vui chơi tối/Cafe nhẹ.
-- Nếu ngày có 8 slot: Ăn sáng -> Đi chơi cữ 1 -> Đi chơi cữ 2 -> Ăn trưa -> Nghỉ ngơi/Cafe/Check-in KS -> Đi chơi cữ 3 -> Ăn tối -> Vui chơi tối/Cafe nhẹ.
-- Nếu ngày có 9 slot: Xếp đầy đủ: Ăn sáng -> Đi chơi cữ 1 -> Đi chơi cữ 2 -> Ăn trưa -> Nghỉ ngơi/Cafe/Check-in KS -> Đi chơi cữ 3 -> Ăn tối -> Vui chơi tối -> Cafe nhẹ cuối ngày/Về KS.
+= = = CẤU TRÚC LỊCH TRÌNH CỐ ĐỊNH BẮT BUỘC ĐÚNG 9 SLOT/NGÀY = = =
+BẮT BUỘC tất cả các ngày trong lịch trình từ Ngày 1 đến Ngày ${days} ĐỀU PHẢI CÓ ĐỦ ĐÚNG 9 ĐỊA ĐIỂM (9 slot giờ cố định). TUYỆT ĐỐI KHÔNG ĐƯỢC TẠO NGÀY ÍT HƠN 9 ĐỊA ĐIỂM (Không tạo ngày 2, 3, 7 hay 8 địa điểm).
+
+Cấu trúc 9 slot cho mỗi ngày:
+- Slot 0 (07:00 - 08:30): Cà phê sáng & Điểm tâm
+- Slot 1 (08:30 - 10:30): Điểm tham quan 1
+- Slot 2 (10:30 - 12:30): Điểm tham quan 2
+- Slot 3 (12:30 - 13:30): Ăn trưa
+- Slot 4 (13:30 - 15:00): Check-in Khách sạn (Ngày 1) / Cà phê nghỉ trưa (Ngày 2+)
+- Slot 5 (15:00 - 16:30): Điểm tham quan 3
+- Slot 6 (16:30 - 18:00): Điểm tham quan 4
+- Slot 7 (18:00 - 19:00): Ăn tối
+- Slot 8 (19:00 - 22:00): Vui chơi tối / Cà phê đêm
 
 = = = QUY TẮC PHÂN BỔ THỜI GIAN BUỔI TỐI (BẮT BUỘC) = = =
-- SLOT CUỐI CÙNG trong ngày (Slot 7 của ngày 7 slot, Slot 8 của ngày 8 slot, Slot 9 của ngày 9 slot) BẮT BUỘC chỉ được xếp là Quán Cà phê (Cafe) hoặc Điểm ngắm cảnh đêm. TUYỆT ĐỐI không xếp địa điểm tham quan như bảo tàng, chùa chiền, khu di tích, vườn sinh thái hay địa danh thiên nhiên vào slot này.
-- SLOT SÁT CUỐI (Slot 7 của ngày 9 slot hoặc Slot 8 của ngày 10 slot) là thời gian vui chơi tối: Chỉ xếp địa điểm vui chơi buổi tối thích hợp như: Trung tâm thương mại (Vincom, Sense City...), Chợ đêm, Phố đi bộ, Cầu đi bộ Bến Ninh Kiều, hoặc quán Cà phê/Ăn vặt. TUYỆT ĐỐI CẤM xếp các điểm tham quan ban ngày như Bảo tàng, Chùa, Thiền viện, Vườn sinh thái, Vườn trái cây, Lò hủ tiếu vào các slot tối (từ 19:30 trở đi).
+- SLOT CUỐI CÙNG trong ngày (Slot 8) BẮT BUỘC chỉ được xếp là Quán Cà phê (Cafe) hoặc Điểm ngắm cảnh đêm. TUYỆT ĐỐI không xếp địa điểm tham quan như bảo tàng, chùa chiền, khu di tích, vườn sinh thái hay địa danh thiên nhiên vào slot này.
+- SLOT SÁT CUỐI (Slot 7) là bữa ăn tối.
 
-LƯU Ý QUAN TRỌNG: Tất cả các trường hợp đều phải bắt buộc có đủ 3 bữa ăn (Ăn sáng, Ăn trưa, Ăn tối) nằm xen kẽ với các điểm đi chơi/cà phê.
+LƯU Ý QUAN TRỌNG: Tất cả các ngày đều phải bắt buộc có đủ 3 bữa ăn (Ăn sáng, Ăn trưa, Ăn tối) nằm xen kẽ với các điểm đi chơi/cà phê.
 
 = = = QUY TẮC CẤM LIÊN TIẾP = = =
 - CẤM xếp 2 địa điểm ăn uống (Nhà hàng, Quán ăn, Cà phê) liên tiếp nhau.
@@ -1334,16 +1324,12 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
     }
 
     const validIdSet = new Set(candidatePlaces.map((p) => Number(p.id)));
-    const usedIdSet = new Set<number>();
 
     const validatedDays = (parsed.days || []).map((day: any, idx: number) => {
       const validatedPlaces = (day.places || [])
         .filter((p: any) => {
           const pid = Number(p.placeId);
-          if (!validIdSet.has(pid)) return false;
-          if (usedIdSet.has(pid)) return false;
-          usedIdSet.add(pid);
-          return true;
+          return validIdSet.has(pid);
         })
         .map((p: any) => ({
           placeId: Number(p.placeId),
@@ -1357,6 +1343,16 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
       };
     });
 
+    // Đảm bảo 100% validatedDays có đủ số lượng ngày theo yêu cầu (ví dụ: 7 ngày)
+    while (validatedDays.length < days) {
+      const nextDayNum = validatedDays.length + 1;
+      validatedDays.push({
+        dayNumber: nextDayNum,
+        dayTitle: `Ngày ${nextDayNum}: Khám phá điểm đến tuyệt vời`,
+        places: [],
+      });
+    }
+
     const isEarlyMarketPresent = specificNamedPlaces.some((s) => (s.name || '').toLowerCase().includes('chợ nổi')) || mustVisitPlaces.some((s) => (s.name || '').toLowerCase().includes('chợ nổi'));
     const minPlacesPerDay = isEarlyMarketPresent && destination.toLowerCase().includes('cần thơ') ? 8 : 7;
     const maxPlacesPerDay = isEarlyMarketPresent && destination.toLowerCase().includes('cần thơ') ? 10 : 9;
@@ -1364,6 +1360,7 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
     // ─── STEP 7: STREAMLINED PIPELINE (PASS TO RULE-ENGINE BIOLOGICAL SCHEDULER & STRICT SANITIZER) ───
     const candidatePlacesMap = new Map<number, any>(candidatePlaces.map((cp) => [Number(cp.id), cp]));
     const step9GlobalUsedIds = new Set<number>();
+    const step9GlobalUsedNames = new Set<string>();
     const finalOptimizedDays: any[] = [];
 
     // Fetch weather info realtime cho city
@@ -1385,6 +1382,7 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
           hasHotel: (dto as any).hasHotel !== false,
           isRainy,
           globalUsedIds: step9GlobalUsedIds, // cross-day dedup
+          globalUsedNames: step9GlobalUsedNames, // cross-day name dedup
         },
       );
 
@@ -1392,6 +1390,9 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
       for (const p of placesWithTime) {
         const pid = Number(p.placeId || p.id || p.place?.id);
         if (pid) step9GlobalUsedIds.add(pid);
+        const pObj = candidatePlacesMap.get(pid);
+        const pNorm = this.ruleEngine.normalizePlaceName(pObj?.name || p.name);
+        if (pNorm) step9GlobalUsedNames.add(pNorm);
       }
 
       // LOẠI BỎ HOÀN TOÀN TRƯỜNG NOTE VÀ GẮN WEATHER REALTIME TRÊN TỪNG THẺ ĐỊA ĐIỂM

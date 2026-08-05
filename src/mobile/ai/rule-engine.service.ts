@@ -402,16 +402,16 @@ export class RuleEngineService {
     if (catName.includes('khách sạn') || catName.includes('homestay') || catName.includes('resort') || name.includes('khách sạn') || name.includes('homestay') || name.includes('resort') || name.includes('hotel') || name.includes('nesta')) {
       return 'HOTEL';
     }
-    if (catName.includes('cà phê') || catName.includes('cafe') || name.includes('cà phê') || name.includes('coffee') || name.includes('highland') || name.includes('hoa yên')) {
+    if (catName.includes('cà phê') || catName.includes('cafe') || name.includes('cà phê') || name.includes('coffee') || name.includes('highland') || name.includes('hoa yên') || name.includes('cà phê sáng')) {
       return 'CAFE';
     }
     const diningKeywords = [
-      'quán ăn', 'nhà hàng', 'quán', 'ẩm thực', 'hải sản', 'bún', 'phở', 'ốc',
-      'bánh', 'lẩu', 'nướng', 'bbq', 'gà', 'spicy box', 'buffet', 'food',
+      'nhà hàng', 'quán ăn', 'ẩm thực', 'hải sản', 'bún', 'phở', 'ốc',
+      'bánh xèo', 'bánh khọt', 'lẩu', 'nướng', 'bbq', 'quán nhậu', 'spicy box', 'buffet',
       'eatery', 'cơm', 'cháo', 'lotte', 'kfc', 'jollibee', 'pizza', 'dê', 'bò',
       'hoa sứ', 'cây bưởi', 'đại ca'
     ];
-    if (diningKeywords.some((k) => fullText.includes(k))) {
+    if (diningKeywords.some((k) => fullText.includes(k)) || catName.includes('nhà hàng') || catName.includes('quán ăn') || catName.includes('ẩm thực')) {
       return 'DINING';
     }
     return 'ATTRACTION';
@@ -581,6 +581,19 @@ export class RuleEngineService {
   }
 
   /**
+   * Chuẩn hóa tên địa điểm để so sánh trùng lặp (loại bỏ dấu, ký tự đặc biệt, viết thường)
+   */
+  normalizePlaceName(name: string): string {
+    if (!name) return '';
+    return name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+  }
+
+  /**
    * Trộn ngẫu nhiên danh sách ứng viên (Fisher-Yates Shuffle)
    * Đảm bảo mọi địa điểm được chọn công bằng, không bị ưu ái địa điểm đứng đầu CSDL (như The Lighthouse Cần Thơ)
    */
@@ -606,10 +619,9 @@ export class RuleEngineService {
       hasHotel?: boolean;
       isRainy?: boolean;
       globalUsedIds?: Set<number>; // cross-day dedup
+      globalUsedNames?: Set<string>; // cross-day name dedup
     },
   ): any[] {
-    if (dayPlaces.length === 0) return [];
-
     const dest = (options?.destination || '').toLowerCase();
     const cr = (options?.customRequest || '').toLowerCase();
     const isCanTho = dest.includes('cần thơ') || cr.includes('chợ nổi');
@@ -645,17 +657,23 @@ export class RuleEngineService {
       }
     }
 
+    const gUsedIds = options?.globalUsedIds || new Set<number>();
+    const gUsedNames = options?.globalUsedNames || new Set<string>();
+
     // BẮT BUỘC TỐI THIỂU 4 ĐIỂM THAM QUAN CHO MỖI NGÀY
     while (rawDaytimeAttractions.length < 4) {
       let candidateFound = false;
       for (const [id, cp] of candidatePlacesMap.entries()) {
         const group = this.getGeneralCategoryGroup(cp);
         if (group === 'ATTRACTION') {
-          const alreadyInDay = processedPlaces.some((dp) => Number(dp.placeId || dp.id) === Number(id)) ||
-                               rawDaytimeAttractions.some((da) => Number(da.placeId || da.id) === Number(id));
-          if (!alreadyInDay && !this.isVagueOrInvalidPlaceName(cp.name, dest)) {
+          const pid = Number(id);
+          const normName = this.normalizePlaceName(cp.name);
+          const alreadyInDay = processedPlaces.some((dp) => Number(dp.placeId || dp.id) === pid || this.normalizePlaceName(dp.name) === normName) ||
+                               rawDaytimeAttractions.some((da) => Number(da.placeId || da.id) === pid || this.normalizePlaceName(da.name) === normName);
+          const isGlobalUsed = gUsedIds.has(pid) || (normName && gUsedNames.has(normName));
+          if (!alreadyInDay && !isGlobalUsed && !this.isVagueOrInvalidPlaceName(cp.name, dest)) {
             rawDaytimeAttractions.push({
-              placeId: Number(id),
+              placeId: pid,
               note: `Tham quan ${cp.name} để trải nghiệm danh thắng địa phương.`,
             });
             candidateFound = true;
@@ -682,8 +700,9 @@ export class RuleEngineService {
     const result: any[] = [];
 
     // HÀM CHỌN ĐỊA ĐIỂM ĐẢM BẢO ĐÚNG THUỘC TÍNH BẮT BUỘC CHO MỖI SLOT (ĐÃ KHẮC PHỤC TRÙNG LẶP LIÊN TIẾP):
-    // IDs đã dùng ở các NGÀY KHÁC (cross-day dedup)
+    // IDs & Tên đã dùng ở các NGÀY KHÁC (cross-day dedup)
     const globalUsedIds: Set<number> = options?.globalUsedIds || new Set();
+    const globalUsedNames: Set<string> = options?.globalUsedNames || new Set();
 
     // Slot 0 = sáng sớm (ăn sáng/café), slot NIGHT_SLOT = tối
     const isBreakfastSlot = (s: number) => s === 0;
@@ -701,10 +720,11 @@ export class RuleEngineService {
         }
       }
 
-      const isNightSlot = (targetLength <= 7 && s >= 6) ||
-                          (targetLength === 8 && s >= 7) ||
-                          (targetLength === 9 && s >= 7) ||
-                          (targetLength >= 10 && s >= 8);
+      const tLen = targetLength as number;
+      const isNightSlot = (tLen <= 7 && s >= 6) ||
+                          (tLen === 8 && s >= 7) ||
+                          (tLen === 9 && s >= 7) ||
+                          (tLen >= 10 && s >= 8);
 
       const isConflictingGroup = (grp: string, catName?: string) => {
         if (!lastGroup) return false;
@@ -731,9 +751,17 @@ export class RuleEngineService {
       const isTimeAppropriate = (cp: any): boolean => {
         if (!cp) return false;
         const pid = Number(cp.id || cp.placeId);
-        // CẤM TUYỆT ĐỐI TRÙNG LẶP ĐỊA ĐIỂM TRONG CÙNG NGÀY HOẶC GIỮA CÁC NGÀY
+        const normName = this.normalizePlaceName(cp.name);
+
+        // CẤM TUYỆT ĐỐI TRÙNG LẶP ĐỊA ĐIỂM TRONG CÙNG NGÀY HOẶC GIỮA CÁC NGÀY (THEO ID HOẶC TÊN)
         if (globalUsedIds.has(pid)) return false;
-        if (result.some((r) => Number(r.placeId || r.id || r.place?.id) === pid)) return false;
+        if (normName && globalUsedNames.has(normName)) return false;
+        if (result.some((r) => {
+          const rId = Number(r.placeId || r.id || r.place?.id);
+          const rObj = candidatePlacesMap.get(rId);
+          const rNorm = rObj ? this.normalizePlaceName(rObj.name) : '';
+          return rId === pid || (normName && rNorm === normName);
+        })) return false;
 
         // Cấm khách sạn ở các ngày sau (Ngày 2 trở đi)
         if (dayNumber > 1 && this.getGeneralCategoryGroup(cp) === 'HOTEL') return false;
@@ -854,15 +882,49 @@ export class RuleEngineService {
         }
       }
 
-      // 4. Ultimate Fallback (khi cạn sạch địa điểm mới ở các ngày sau):
+      // 4. Ultimate Fallback (khi cạn sạch địa điểm chưa từng dùng ở các ngày sau):
       // Đảm bảo 100% không bao giờ để trống slot hay ít hơn 9 địa điểm/ngày.
-      // Ép chọn địa điểm đúng Category CHƯA XUẤT HIỆN TRONG CÙNG NGÀY NÀY.
+      // Ưu tiên địa điểm đúng Category CHƯA XUẤT HIỆN TRONG TOÀN BỘ CHUYẾN ĐI
       for (const grp of allowedGroups) {
         for (const [id, cp] of candidatePlacesMap.entries()) {
           const cGroup = this.getGeneralCategoryGroup(cp);
           if (cGroup === grp) {
             const pid = Number(id);
-            const inCurrentDay = result.some((r) => Number(r.placeId || r.id || r.place?.id) === pid);
+            const normName = this.normalizePlaceName(cp.name);
+            const isGlobalUsed = globalUsedIds.has(pid) || (normName && globalUsedNames.has(normName));
+            const inCurrentDay = result.some((r) => {
+              const rId = Number(r.placeId || r.id || r.place?.id);
+              const rObj = candidatePlacesMap.get(rId);
+              const rNorm = rObj ? this.normalizePlaceName(rObj.name) : '';
+              return rId === pid || (normName && rNorm === normName);
+            });
+            if (!inCurrentDay && !isGlobalUsed) {
+              if (dayNumber > 1 && cGroup === 'HOTEL') continue;
+              if (isNightSlot && !this.isAppropriateForNight(cp)) continue;
+              if (isBreakfastSlot(s)) {
+                const fullT = `${cp.category?.name || ''} ${cp.name || ''}`.toLowerCase();
+                if (['buffet', 'lẩu', 'nướng', 'bbq', 'nhậu', 'hải sản', 'yaki', 'nhà hàng'].some((k) => fullT.includes(k))) continue;
+              }
+              return { placeId: pid };
+            }
+          }
+        }
+      }
+
+      // 5. Hard Guarantee Fallback (Nếu các ngày sau bị cạn địa điểm mới chưa từng dùng):
+      // Ép chọn địa điểm hợp lệ đúng Category CHƯA CÓ TRONG NGÀY HIỆN TẠI để đảm bảo ĐỦ 9 SLOT/NGÀY
+      for (const grp of allowedGroups) {
+        for (const [id, cp] of candidatePlacesMap.entries()) {
+          const cGroup = this.getGeneralCategoryGroup(cp);
+          if (cGroup === grp) {
+            const pid = Number(id);
+            const normName = this.normalizePlaceName(cp.name);
+            const inCurrentDay = result.some((r) => {
+              const rId = Number(r.placeId || r.id || r.place?.id);
+              const rObj = candidatePlacesMap.get(rId);
+              const rNorm = rObj ? this.normalizePlaceName(rObj.name) : '';
+              return rId === pid || (normName && rNorm === normName);
+            });
             if (!inCurrentDay) {
               if (dayNumber > 1 && cGroup === 'HOTEL') continue;
               if (isNightSlot && !this.isAppropriateForNight(cp)) continue;
@@ -876,13 +938,37 @@ export class RuleEngineService {
         }
       }
 
+      // 6. Absolute Guarantee Fallback (Nếu cạn địa điểm đúng Category):
+      // Chọn BẤT KỲ địa điểm hợp lệ nào trong CSDL chưa có trong ngày hiện tại để đảm bảo KHÔNG BAO GIỜ THIẾU SLOT
+      for (const [id, cp] of candidatePlacesMap.entries()) {
+        const cGroup = this.getGeneralCategoryGroup(cp);
+        if (dayNumber > 1 && cGroup === 'HOTEL') continue;
+        if (isNightSlot && !this.isAppropriateForNight(cp)) continue;
+        const pid = Number(id);
+        const normName = this.normalizePlaceName(cp.name);
+        const inCurrentDay = result.some((r) => {
+          const rId = Number(r.placeId || r.id || r.place?.id);
+          const rObj = candidatePlacesMap.get(rId);
+          const rNorm = rObj ? this.normalizePlaceName(rObj.name) : '';
+          return rId === pid || (normName && rNorm === normName);
+        });
+        if (!inCurrentDay) {
+          return { placeId: pid };
+        }
+      }
+
+      // 7. Last Resort Emergency Fallback: Lấy bất kỳ địa điểm nào trong CSDL để lấp đầy slot
+      for (const [id] of candidatePlacesMap.entries()) {
+        return { placeId: Number(id) };
+      }
+
       return null;
     };
 
-    const targetLength = dayPlaces && dayPlaces.length > 0 ? dayPlaces.length : 9;
     const firstPlaceId = dayPlaces && dayPlaces[0] ? (dayPlaces[0].placeId || dayPlaces[0].id || dayPlaces[0].place?.id) : null;
     const firstPlaceObj = firstPlaceId ? candidatePlacesMap.get(Number(firstPlaceId)) : null;
     const isEarlyMarket = firstPlaceObj && (firstPlaceObj.name || '').toLowerCase().includes('chợ nổi');
+    const targetLength = isEarlyMarket ? 10 : 9;
     let slotsConfig: Array<Array<'DINING' | 'CAFE' | 'ATTRACTION' | 'HOTEL'>> = [];
 
     if (isEarlyMarket) {
@@ -1339,6 +1425,7 @@ export class RuleEngineService {
     destination: string,
   ): any[] {
     const usedGlobalIds = new Set<number>();
+    const usedGlobalNames = new Set<string>();
 
     return days.map((dayObj) => {
       const isDay1 = dayObj.dayNumber === 1;
@@ -1352,9 +1439,29 @@ export class RuleEngineService {
         const isViolation = (p: any, sIdx: number): boolean => {
           if (!p) return true;
           const pId = Number(p.id || p.placeId);
+          const normName = this.normalizePlaceName(p.name);
 
-          // 1. Cross-day & Same-day Dedup
+          // 1. Cross-day & Same-day Dedup (by ID or Normalized Name)
           if (usedGlobalIds.has(pId)) return true;
+          if (normName && usedGlobalNames.has(normName)) return true;
+
+          // 1b. Same-day Dedup check against already sanitized places in this day
+          const alreadyInSanitizedDay = sanitizedPlaces.some((sp) => {
+            const spId = Number(sp.placeId || sp.id);
+            const spObj = candidatePlacesMap.get(spId);
+            const spNorm = spObj ? this.normalizePlaceName(spObj.name) : '';
+            return spId === pId || (normName && spNorm === normName);
+          });
+          if (alreadyInSanitizedDay) return true;
+
+          // 1c. Cấm 2 địa điểm trùng nhau/trùng tên đứng LIÊN TIẾP nhau
+          if (sanitizedPlaces.length > 0) {
+            const prevItem = sanitizedPlaces[sanitizedPlaces.length - 1];
+            const prevId = Number(prevItem.placeId || prevItem.id);
+            const prevObj = candidatePlacesMap.get(prevId);
+            const prevNorm = prevObj ? this.normalizePlaceName(prevObj.name) : '';
+            if (prevId === pId || (normName && prevNorm === normName)) return true;
+          }
 
           const catName = (p.category?.name || '').toLowerCase();
           const name = (p.name || '').toLowerCase();
@@ -1380,30 +1487,30 @@ export class RuleEngineService {
 
           // 4. Slot Ăn trưa (sIdx === 3) và Ăn tối (sIdx === 7) BẮT BUỘC là DINING
           if (sIdx === 3 || sIdx === 7) {
-            if (group !== 'DINING' && !catName.includes('nhà hàng') && !catName.includes('quán ăn') && !catName.includes('ẩm thực') && !name.includes('nhà hàng') && !name.includes('quán')) {
-              return true;
-            }
+            if (group !== 'DINING') return true;
           }
 
           // 5. Slot Ăn sáng / Cafe (sIdx === 0) BẮT BUỘC là CAFE / Điểm tâm nhẹ (CẤM Buffet, Lẩu, Nướng, Nhà hàng nặng)
           if (sIdx === 0) {
             if (group !== 'CAFE' && group !== 'DINING') return true;
             const fullT = `${catName} ${name}`.toLowerCase();
-            const isHeavyFood = ['buffet', 'lẩu', 'nướng', 'bbq', 'nhậu', 'hải sản', 'yaki', 'nhà hàng'].some(k => fullT.includes(k));
+            const isHeavyFood = ['buffet', 'lẩu', 'nướng', 'bbq', 'nhậu', 'hải sản', 'yaki', 'nhà hàng', 'quán nướng'].some(k => fullT.includes(k));
             if (isHeavyFood) return true;
           }
 
-          // 6. Slot Tham quan (sIdx === 1, 2, 5, 6) BẮT BUỘC là ATTRACTION (CẤM gán địa điểm ăn uống/nhà hàng vào slot tham quan)
+          // 6. Slot Tham quan (sIdx === 1, 2, 5, 6) BẮT BUỘC là ATTRACTION / PAGODA (CẤM TUYỆT ĐỐI nhà hàng, quán ăn, cà phê, khách sạn)
           if (sIdx === 1 || sIdx === 2 || sIdx === 5 || sIdx === 6) {
-            if (group !== 'ATTRACTION') return true;
+            if (group !== 'ATTRACTION' && group !== 'PAGODA') return true;
           }
 
-          // 7. CẤM BỐ TRÍ QUÁ 3 ĐỊA ĐIỂM ĂN UỐNG / NHÀ HÀNG MỖI NGÀY (CHỈ CÓ ĐÚNG 3 BỮA: SÁNG - TRƯA - TỐI)
-          const isFoodGroup = group === 'DINING' || group === 'CAFE';
-          if (isFoodGroup) {
-            if (sIdx !== 0 && sIdx !== 3 && sIdx !== 7) {
-              return true; // Cấm quán ăn/nhà hàng rơi vào các slot ngoài 3 bữa ăn (1, 2, 4, 5, 6, 8)
-            }
+          // 7. CẤM NHÀ HÀNG / QUÁN ĂN NẶNG (DINING) XUẤT HIỆN Ở BẤT KỲ SLOT NÀO KHÁC BỮA TRƯA (Slot 3) VÀ BỮA TỐI (Slot 7)
+          if (group === 'DINING') {
+            if (sIdx !== 3 && sIdx !== 7) return true;
+          }
+
+          // 8. CẤM CÀ PHÊ (CAFE) XUẤT HIỆN Ở CÁC SLOT THAM QUAN HOẶC BỮA ĂN CHÍNH (Cấm ở Slot 1, 2, 3, 5, 6, 7)
+          if (group === 'CAFE') {
+            if (sIdx !== 0 && sIdx !== 4 && sIdx !== 8) return true;
           }
 
           // 8. CẤM TUYỆT ĐỐI 2 ĂN UỐNG (DINING / CAFE) KỀ NHAU
@@ -1433,7 +1540,8 @@ export class RuleEngineService {
           let replacementFound = false;
           for (const [candId, candidate] of candidatePlacesMap.entries()) {
             const cId = Number(candId);
-            if (!usedGlobalIds.has(cId) && !isViolation(candidate, slotIdx)) {
+            const cNorm = this.normalizePlaceName(candidate.name);
+            if (!usedGlobalIds.has(cId) && (!cNorm || !usedGlobalNames.has(cNorm)) && !isViolation(candidate, slotIdx)) {
               placeItem = {
                 ...placeItem,
                 placeId: cId,
@@ -1441,6 +1549,7 @@ export class RuleEngineService {
               };
               placeObj = candidate;
               usedGlobalIds.add(cId);
+              if (cNorm) usedGlobalNames.add(cNorm);
               replacementFound = true;
               this.logger.warn(
                 `[STRICT SANITIZER] Replaced invalid place at Day ${dayObj.dayNumber} Slot ${slotIdx} (${placeItem.startTime}) -> ${candidate.name} (ID: ${cId})`,
@@ -1450,12 +1559,135 @@ export class RuleEngineService {
           }
           if (!replacementFound) {
             usedGlobalIds.add(pid);
+            const pNorm = this.normalizePlaceName(placeObj?.name);
+            if (pNorm) usedGlobalNames.add(pNorm);
           }
         } else {
           usedGlobalIds.add(pid);
+          const pNorm = this.normalizePlaceName(placeObj?.name);
+          if (pNorm) usedGlobalNames.add(pNorm);
         }
 
         sanitizedPlaces.push(placeItem);
+      }
+
+      // ĐẢM BẢO 100% MỖI NGÀY ĐỦ ĐÚNG 9 SLOT (HOẶC 10 SLOT NẾU CÓ CHỢ NỔI)
+      const firstItem = sanitizedPlaces[0];
+      const firstPlaceId = firstItem ? Number(firstItem.placeId || firstItem.id || firstItem.place?.id) : null;
+      const firstPlaceObj = firstPlaceId ? candidatePlacesMap.get(firstPlaceId) : null;
+      const isEarlyMarket = firstPlaceObj && (firstPlaceObj.name || '').toLowerCase().includes('chợ nổi');
+      const requiredSlotCount = isEarlyMarket ? 10 : 9;
+
+      const standardTimes = isEarlyMarket
+        ? [
+            { startTime: '05:30', endTime: '07:30' },
+            { startTime: '07:30', endTime: '08:30' },
+            { startTime: '08:30', endTime: '10:30' },
+            { startTime: '10:30', endTime: '12:30' },
+            { startTime: '12:30', endTime: '13:30' },
+            { startTime: '13:30', endTime: '15:00' },
+            { startTime: '15:00', endTime: '16:30' },
+            { startTime: '16:30', endTime: '18:00' },
+            { startTime: '18:00', endTime: '19:00' },
+            { startTime: '19:00', endTime: '22:00' },
+          ]
+        : [
+            { startTime: '07:00', endTime: '08:30' },
+            { startTime: '08:30', endTime: '10:30' },
+            { startTime: '10:30', endTime: '12:30' },
+            { startTime: '12:30', endTime: '13:30' },
+            { startTime: '13:30', endTime: '15:00' },
+            { startTime: '15:00', endTime: '16:30' },
+            { startTime: '16:30', endTime: '18:00' },
+            { startTime: '18:00', endTime: '19:00' },
+            { startTime: '19:00', endTime: '22:00' },
+          ];
+
+      const slotGroups: Array<Array<'DINING' | 'CAFE' | 'ATTRACTION' | 'HOTEL'>> = isEarlyMarket
+        ? [
+            ['ATTRACTION'],
+            ['CAFE'],
+            ['ATTRACTION'],
+            ['ATTRACTION'],
+            ['DINING'],
+            dayObj.dayNumber === 1 ? ['HOTEL'] : ['CAFE', 'ATTRACTION'],
+            ['ATTRACTION'],
+            ['ATTRACTION'],
+            ['DINING'],
+            ['ATTRACTION', 'CAFE'],
+          ]
+        : [
+            ['CAFE'],
+            ['ATTRACTION'],
+            ['ATTRACTION'],
+            ['DINING'],
+            dayObj.dayNumber === 1 ? ['HOTEL'] : ['CAFE', 'ATTRACTION'],
+            ['ATTRACTION'],
+            ['ATTRACTION'],
+            ['DINING'],
+            ['ATTRACTION', 'CAFE'],
+          ];
+
+      while (sanitizedPlaces.length < requiredSlotCount) {
+        const sIdx = sanitizedPlaces.length;
+        const allowedGroups = slotGroups[sIdx] || ['ATTRACTION'];
+        let paddedItem: any = null;
+
+        for (const grp of allowedGroups) {
+          for (const [id, cp] of candidatePlacesMap.entries()) {
+            const cGroup = this.getGeneralCategoryGroup(cp);
+            if (cGroup === grp) {
+              const cId = Number(id);
+              const cNorm = this.normalizePlaceName(cp.name);
+              const inCurrentDay = sanitizedPlaces.some((sp) => {
+                const spId = Number(sp.placeId || sp.id);
+                const spObj = candidatePlacesMap.get(spId);
+                const spNorm = spObj ? this.normalizePlaceName(spObj.name) : '';
+                return spId === cId || (cNorm && spNorm === cNorm);
+              });
+              if (!inCurrentDay) {
+                if (dayObj.dayNumber > 1 && cGroup === 'HOTEL') continue;
+                paddedItem = {
+                  placeId: cId,
+                  name: cp.name,
+                  startTime: standardTimes[sIdx]?.startTime || '15:00',
+                  endTime: standardTimes[sIdx]?.endTime || '16:30',
+                  status: 'PENDING',
+                  notifyBeforeMinutes: 15,
+                  sortOrder: sIdx,
+                };
+                usedGlobalIds.add(cId);
+                if (cNorm) usedGlobalNames.add(cNorm);
+                this.logger.warn(`[STRICT SANITIZER PADDING] Padded Day ${dayObj.dayNumber} Slot ${sIdx} (${paddedItem.startTime}) -> ${cp.name} (ID: ${cId})`);
+                break;
+              }
+            }
+          }
+          if (paddedItem) break;
+        }
+
+        if (!paddedItem) {
+          for (const [id, cp] of candidatePlacesMap.entries()) {
+            const cId = Number(id);
+            paddedItem = {
+              placeId: cId,
+              name: cp.name,
+              startTime: standardTimes[sIdx]?.startTime || '15:00',
+              endTime: standardTimes[sIdx]?.endTime || '16:30',
+              status: 'PENDING',
+              notifyBeforeMinutes: 15,
+              sortOrder: sIdx,
+            };
+            this.logger.warn(`[STRICT SANITIZER EMERGENCY PADDING] Emergency Padded Day ${dayObj.dayNumber} Slot ${sIdx} -> ${cp.name}`);
+            break;
+          }
+        }
+
+        if (paddedItem) {
+          sanitizedPlaces.push(paddedItem);
+        } else {
+          break;
+        }
       }
 
       return {
