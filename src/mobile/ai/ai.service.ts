@@ -91,10 +91,13 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       : 'generateContent';
 
     const modelsToTry = [
+      'models/gemini-3.5-flash',
+      'models/gemini-3.6-flash',
       'models/gemini-2.5-flash',
+      'models/gemini-2.5-flash-lite',
       'models/gemini-2.0-flash',
       'models/gemini-1.5-flash',
-      'models/gemini-2.5-pro',
+      'models/gemini-1.5-pro',
     ];
 
     let lastError: any;
@@ -744,6 +747,9 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
         'models/gemini-2.5-flash',
         'models/gemini-2-flash',
         'models/gemini-2.5-flash-lite',
+        'models/gemini-2.0-flash',
+        'models/gemini-1.5-flash',
+        'models/gemini-1.5-pro',
       ];
 
       let streamSuccess = false;
@@ -832,7 +838,7 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
 
     try {
       this.logger.log(`Using custom AI moderation model at ${customAiUrl}...`);
-      const response = await axios.post(customAiUrl, { text }, { timeout: 5000 });
+      const response = await axios.post(customAiUrl, { text }, { timeout: 12000 });
       if (response.status === 200 && response.data) {
         const { isViolation, label, category, reason, confidence } = response.data;
         this.logger.log(
@@ -1475,11 +1481,11 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
         id: { not: BigInt(oldPlaceId) },
         ...(destination
           ? {
-              OR: [
-                { address: { contains: destination, mode: 'insensitive' } },
-                { name: { contains: destination, mode: 'insensitive' } },
-              ],
-            }
+            OR: [
+              { address: { contains: destination, mode: 'insensitive' } },
+              { name: { contains: destination, mode: 'insensitive' } },
+            ],
+          }
           : {}),
       },
       include: { category: true, photos: { take: 1 } },
