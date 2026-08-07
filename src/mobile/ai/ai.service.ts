@@ -1009,6 +1009,10 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     const isChuaRequested = reqLower.includes('chùa') || reqLower.includes('phật') || reqLower.includes('thiền viện') || reqLower.includes('tịnh xá') || reqLower.includes('đền');
     const isBienDongRequested = reqLower.includes('biển đông');
     const isNinhKieuRequested = reqLower.includes('ninh kiều');
+    const isCaiRangRequested = reqLower.includes('cái răng') || reqLower.includes('chợ nổi') || reqLower.includes('cho noi');
+    const isHuTieuRequested = reqLower.includes('hủ tiếu') || reqLower.includes('hu tieu');
+    const isConSonRequested = reqLower.includes('cồn sơn') || reqLower.includes('con son');
+    const isBinhThuyRequested = reqLower.includes('bình thủy') || reqLower.includes('nhà cổ');
 
     // 1. Tìm chính xác Nhà hàng Biển Đông nếu khách gõ "biển đông"
     if (isBienDongRequested) {
@@ -1042,6 +1046,70 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
         if (!candidatePlaces.some((cp) => Number(cp.id) === Number(nk.id))) candidatePlaces.push(nk);
         if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(nk.id))) mustVisitPlaces.push(nk);
         if (!specificNamedPlaces.some((sp) => Number(sp.id) === Number(nk.id))) specificNamedPlaces.push(nk);
+      }
+    }
+
+    // 2b. Tìm chính xác Chợ Nổi Cái Răng nếu khách gõ "cái răng" hoặc "chợ nổi"
+    if (isCaiRangRequested) {
+      const caiRangMatches = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          OR: [
+            { name: { contains: 'Cái Răng', mode: 'insensitive' } },
+            { name: { contains: 'Chợ nổi', mode: 'insensitive' } },
+            { name: { contains: 'Chợ Nổi', mode: 'insensitive' } },
+            { description: { contains: 'Cái Răng', mode: 'insensitive' } },
+            { description: { contains: 'chợ nổi', mode: 'insensitive' } },
+          ],
+        },
+        include: { category: true, photos: { take: 1 } },
+      });
+      for (const cr of caiRangMatches) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(cr.id))) candidatePlaces.push(cr);
+        if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(cr.id))) mustVisitPlaces.push(cr);
+        if (!specificNamedPlaces.some((sp) => Number(sp.id) === Number(cr.id))) specificNamedPlaces.push(cr);
+      }
+    }
+
+    // 2c. Tìm chính xác Hủ tiếu / Lò hủ tiếu nếu khách gõ "hủ tiếu"
+    if (isHuTieuRequested) {
+      const huTieuMatches = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          OR: [
+            { name: { contains: 'Hủ tiếu', mode: 'insensitive' } },
+            { name: { contains: 'Hủ Tiếu', mode: 'insensitive' } },
+            { description: { contains: 'Hủ tiếu', mode: 'insensitive' } },
+            { description: { contains: 'hủ tiếu', mode: 'insensitive' } },
+          ],
+        },
+        include: { category: true, photos: { take: 1 } },
+      });
+      for (const ht of huTieuMatches) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(ht.id))) candidatePlaces.push(ht);
+        if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(ht.id))) mustVisitPlaces.push(ht);
+        if (!specificNamedPlaces.some((sp) => Number(sp.id) === Number(ht.id))) specificNamedPlaces.push(ht);
+      }
+    }
+
+    // 2d. Tìm Cồn Sơn / Bình Thủy
+    if (isConSonRequested || isBinhThuyRequested) {
+      const extraMatches = await this.prisma.place.findMany({
+        where: {
+          isApproved: true,
+          OR: [
+            { name: { contains: 'Cồn Sơn', mode: 'insensitive' } },
+            { name: { contains: 'Bình Thủy', mode: 'insensitive' } },
+            { description: { contains: 'Cồn Sơn', mode: 'insensitive' } },
+            { description: { contains: 'Bình Thủy', mode: 'insensitive' } },
+          ],
+        },
+        include: { category: true, photos: { take: 1 } },
+      });
+      for (const em of extraMatches) {
+        if (!candidatePlaces.some((cp) => Number(cp.id) === Number(em.id))) candidatePlaces.push(em);
+        if (!mustVisitPlaces.some((mv) => Number(mv.id) === Number(em.id))) mustVisitPlaces.push(em);
+        if (!specificNamedPlaces.some((sp) => Number(sp.id) === Number(em.id))) specificNamedPlaces.push(em);
       }
     }
 
@@ -1357,6 +1425,23 @@ Hãy tạo lịch trình ${days} ngày (07:00 - 22:00) đáp ứng toàn bộ qu
         dayTitle: `Ngày ${nextDayNum}: Khám phá điểm đến tuyệt vời`,
         places: [],
       });
+    }
+
+    // Đảm bảo 100% các địa điểm bắt buộc (như Chợ nổi Cái Răng, Hủ tiếu, Biển Đông...) phải có mặt trong lịch trình
+    for (const mv of mustVisitPlaces) {
+      const mvId = Number(mv.id);
+      const isAlreadyInValidatedDays = validatedDays.some((vd: any) =>
+        (vd.places || []).some((p: any) => Number(p.placeId || p.id) === mvId),
+      );
+      if (!isAlreadyInValidatedDays) {
+        if (validatedDays.length > 0) {
+          validatedDays[0].places.unshift({
+            placeId: mvId,
+            note: `Trải nghiệm điểm đến ưu tiên theo yêu cầu đặc biệt của bạn.`,
+          });
+          this.logger.log(`[AI SERVICE] Guaranteed inclusion of must-visit place: ${mv.name} (ID: ${mvId})`);
+        }
+      }
     }
 
     const isEarlyMarketPresent = specificNamedPlaces.some((s) => (s.name || '').toLowerCase().includes('chợ nổi')) || mustVisitPlaces.some((s) => (s.name || '').toLowerCase().includes('chợ nổi'));
