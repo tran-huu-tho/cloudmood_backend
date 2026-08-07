@@ -437,6 +437,26 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async deleteChatSession(userId: bigint, sessionId: bigint) {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new Error('Session not found or unauthorized');
+    }
+
+    await this.prisma.chatMessage.deleteMany({
+      where: { sessionId },
+    });
+
+    await this.prisma.chatSession.delete({
+      where: { id: sessionId },
+    });
+
+    return { success: true };
+  }
+
   // ============================================
   // PROCESS CHAT (nâng cấp RAG-lite + Context Window)
   // ============================================

@@ -30,6 +30,25 @@ export class WeatherController {
   }
 
   /**
+   * Lấy dự báo thời tiết nhiều giờ & 5 ngày tới
+   * Ví dụ:
+   * GET /weather/forecast?cityName=Da Nang
+   * GET /weather/forecast?lat=16.05&lon=108.20
+   */
+  @Get('forecast')
+  async getWeatherForecast(
+    @Query('cityName') cityName?: string,
+    @Query('lat') lat?: string,
+    @Query('lon') lon?: string,
+  ) {
+    return this.weatherService.getWeatherForecast(
+      cityName,
+      lat ? +lat : undefined,
+      lon ? +lon : undefined,
+    );
+  }
+
+  /**
    * Lấy danh sách toàn bộ các thành phố đang được theo dõi/cache thời tiết
    * Phục vụ cho Dashboard Next.js
    */

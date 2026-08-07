@@ -37,3 +37,4 @@ import { ForumModule } from './mobile/forum/forum.module';
   providers: [],
 })
 export class AppModule {}
+

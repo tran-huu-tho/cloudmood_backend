@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Get,
+  Delete,
   Param,
   Query,
   UseGuards,
@@ -112,6 +113,14 @@ export class MobileAiController {
         sessionId: m.sessionId.toString(),
       })),
     };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Delete('chat-sessions/:id')
+  async deleteChatSession(@Request() req: any, @Param('id') id: string) {
+    const userId = BigInt(req.user.id);
+    await this.aiService.deleteChatSession(userId, BigInt(id));
+    return { success: true, message: 'Đã xóa cuộc trò chuyện' };
   }
 
   @UseGuards(AuthGuard('jwt'))

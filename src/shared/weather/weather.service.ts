@@ -444,6 +444,114 @@ export class WeatherService {
   }
 
   /**
+   * Lấy dự báo thời tiết nhiều giờ & nhiều ngày cho thành phố hoặc tọa độ
+   */
+  async getWeatherForecast(cityName?: string, lat?: number, lon?: number) {
+    let data: any;
+    try {
+      let url = '';
+      if (lat !== undefined && lon !== undefined && !isNaN(lat) && !isNaN(lon)) {
+        url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${this.apiKey}&units=metric&lang=vi`;
+      } else {
+        const targetCity = cityName || 'Da Nang';
+        const cleanName = this.getCleanSearchQuery(targetCity);
+        url = `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(cleanName)}&appid=${this.apiKey}&units=metric&lang=vi`;
+      }
+
+      const response = await axios.get(url);
+      data = response.data;
+    } catch (apiError: any) {
+      this.logger.error(
+        `Lỗi khi gọi OpenWeatherMap Forecast API: ${apiError.message}`,
+      );
+      throw new BadRequestException('Không thể lấy dự báo thời tiết.');
+    }
+
+    const city = data.city?.name || cityName || 'Đà Nẵng';
+
+    // 1. Format Hourly Forecast (Next 12 slots ~ 36 hours, every 3 hours)
+    const hourlyList = (data.list || []).slice(0, 12).map((item: any) => {
+      const dateObj = new Date(item.dt * 1000);
+      const timeStr = `${dateObj.getHours().toString().padStart(2, '0')}:00`;
+      const popPercent = Math.round((item.pop || 0) * 100);
+
+      return {
+        dt: item.dt,
+        time: timeStr,
+        dateStr: dateObj.toISOString().split('T')[0],
+        temp: Math.round(item.main.temp),
+        feelsLike: Math.round(item.main.feels_like),
+        condition: item.weather[0]?.main || 'Clear',
+        description: item.weather[0]?.description || '',
+        icon: item.weather[0]?.icon || '01d',
+        humidity: item.main.humidity,
+        pop: popPercent,
+        windSpeed: item.wind?.speed || 0,
+      };
+    });
+
+    // 2. Group by Day for 5-Day Forecast
+    const dailyMap = new Map<string, any>();
+    const weekdayNames = [
+      'Chủ nhật',
+      'Thứ hai',
+      'Thứ ba',
+      'Thứ tư',
+      'Thứ năm',
+      'Thứ sáu',
+      'Thứ bảy',
+    ];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    (data.list || []).forEach((item: any) => {
+      const dateObj = new Date(item.dt * 1000);
+      const dateKey = dateObj.toISOString().split('T')[0];
+      const weekday =
+        dateKey === todayStr ? 'Hôm nay' : weekdayNames[dateObj.getDay()];
+
+      if (!dailyMap.has(dateKey)) {
+        dailyMap.set(dateKey, {
+          date: dateKey,
+          dayName: weekday,
+          minTemp: item.main.temp_min,
+          maxTemp: item.main.temp_max,
+          popMax: Math.round((item.pop || 0) * 100),
+          condition: item.weather[0]?.main || 'Clear',
+          description: item.weather[0]?.description || '',
+          icon: item.weather[0]?.icon || '01d',
+        });
+      } else {
+        const existing = dailyMap.get(dateKey);
+        existing.minTemp = Math.min(existing.minTemp, item.main.temp_min);
+        existing.maxTemp = Math.max(existing.maxTemp, item.main.temp_max);
+        existing.popMax = Math.max(
+          existing.popMax,
+          Math.round((item.pop || 0) * 100),
+        );
+        if (item.weather[0]?.icon?.includes('d')) {
+          existing.icon = item.weather[0]?.icon;
+          existing.description = item.weather[0]?.description;
+        }
+      }
+    });
+
+    const dailyList = Array.from(dailyMap.values())
+      .slice(0, 5)
+      .map((d) => ({
+        ...d,
+        minTemp: Math.round(d.minTemp),
+        maxTemp: Math.round(d.maxTemp),
+      }));
+
+    return {
+      cityName: city,
+      current: hourlyList[0] || null,
+      hourly: hourlyList,
+      daily: dailyList,
+    };
+  }
+
+  /**
    * Lấy tất cả dữ liệu thời tiết đang được giám sát từ Cache (dùng cho Dashboard Next.js)
    */
   async getMonitoredWeather() {
