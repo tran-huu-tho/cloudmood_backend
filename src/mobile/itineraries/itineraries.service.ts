@@ -348,47 +348,7 @@ export class ItinerariesService implements OnModuleInit {
       // Bỏ qua nếu trùng lập
     }
 
-    if (data.isGuide === true) {
-      await this.prisma.itinerarySection.createMany({
-        data: [
-          {
-            itineraryId: itinerary.id,
-            name: 'Mẹo chung',
-            colorCode: '4282057462',
-            iconCode: 983363,
-            sortOrder: 0,
-            sectionType: 'LIST',
-          },
-          {
-            itineraryId: itinerary.id,
-            name: 'Ngày 1',
-            colorCode: '4282057462',
-            iconCode: 983363,
-            sortOrder: 1,
-            sectionType: 'ITINERARY',
-          },
-          {
-            itineraryId: itinerary.id,
-            name: 'Điểm tham quan',
-            colorCode: '4282057462',
-            iconCode: 983363,
-            sortOrder: 2,
-            sectionType: 'LIST',
-          },
-        ],
-      });
-    } else {
-      await this.prisma.itinerarySection.create({
-        data: {
-          itineraryId: itinerary.id,
-          name: 'Điểm tham quan',
-          colorCode: '4282057462',
-          iconCode: 983363, // corresponds to Icons.looks_one_rounded.codePoint
-          sortOrder: 0,
-          sectionType: 'LIST',
-        },
-      });
-    }
+    // Do not auto-create default sections. Let user create custom sections as needed.
 
     // We do not auto-save places to ItinerarySavedPlace.
     // The mobile app dynamically loads suggestions based on the destination.
@@ -613,6 +573,23 @@ export class ItinerariesService implements OnModuleInit {
       });
 
       console.log(`[UPDATE_DETAIL] Detail #${id} SUCCESS: new placeId = ${res.placeId}, placeName = ${res.place?.name}`);
+
+      if (updateData.noteText !== undefined && res.placeId) {
+        const posts = await this.prisma.explorePost.findMany({
+          where: { originalItineraryId: res.itineraryId },
+          select: { id: true },
+        });
+        if (posts.length > 0) {
+          await this.prisma.explorePostItem.updateMany({
+            where: {
+              postId: { in: posts.map((p) => p.id) },
+              placeId: res.placeId,
+            },
+            data: { content: updateData.noteText },
+          });
+        }
+      }
+
       this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_DETAIL');
       return res;
     } catch (err: any) {
@@ -688,6 +665,23 @@ export class ItinerariesService implements OnModuleInit {
         data: updatePayload,
         include: { place: { include: { category: true, photos: true } } },
       });
+
+      if (updateData.noteText !== undefined && res.placeId) {
+        const posts = await this.prisma.explorePost.findMany({
+          where: { originalItineraryId: res.itineraryId },
+          select: { id: true },
+        });
+        if (posts.length > 0) {
+          await this.prisma.explorePostItem.updateMany({
+            where: {
+              postId: { in: posts.map((p) => p.id) },
+              placeId: res.placeId,
+            },
+            data: { content: updateData.noteText },
+          });
+        }
+      }
+
       this.itinerariesGateway.broadcastItineraryUpdate(res.itineraryId.toString(), updatedByUserId, 'UPDATE_SAVED_PLACE');
       return res;
     } catch (err: any) {

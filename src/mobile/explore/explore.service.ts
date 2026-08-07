@@ -84,6 +84,16 @@ export class ExploreService {
         originalItinerary: {
           include: {
             sections: true,
+            savedPlaces: {
+              include: {
+                place: true,
+              },
+            },
+            details: {
+              include: {
+                place: true,
+              },
+            },
           },
         },
         likes: {
