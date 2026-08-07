@@ -286,7 +286,23 @@ export class ExploreService {
     const title = data?.title || itin?.title || 'Bài hướng dẫn';
     const description = data?.description || itin?.companion || null;
     const destination = data?.destination || itin?.destination || null;
-    const coverImage = data?.coverImage || itin?.coverImage || null;
+    let coverImage = data?.coverImage || itin?.coverImage || null;
+    if (!coverImage) {
+      try {
+        const dest = destination || '';
+        const placeCat32 = await this.prisma.place.findFirst({
+          where: {
+            categoryId: 32n,
+            ...(dest ? { address: { contains: dest, mode: 'insensitive' } } : {}),
+            image: { not: '' },
+          },
+          select: { image: true },
+        });
+        if (placeCat32?.image) {
+          coverImage = placeCat32.image;
+        }
+      } catch (_) {}
+    }
 
     let post = await this.prisma.explorePost.findFirst({
       where: { originalItineraryId: BigInt(itineraryId) },

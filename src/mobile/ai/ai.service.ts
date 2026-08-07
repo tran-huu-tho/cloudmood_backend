@@ -177,7 +177,6 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
 
   private async getPlaceContext(placeName: string): Promise<string> {
     try {
-      // Tìm place trong DB (fuzzy match)
       const place = await this.prisma.place.findFirst({
         where: {
           OR: [
@@ -194,59 +193,35 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      if (!place) return '';
-
       const parts: string[] = [];
-      parts.push(`\n--- DỮ LIỆU THỰC TẾ TỪ HỆ THỐNG CLOUDMOOD ---`);
-      parts.push(`Tên: ${place.name}`);
-      parts.push(`Địa chỉ: ${place.address}`);
-      if (place.description) parts.push(`Mô tả: ${place.description}`);
-      if (place.category) parts.push(`Danh mục: ${place.category.name}`);
-      if (place.rating) parts.push(`Đánh giá trung bình: ${place.rating}/5 (${place.userRatingCount || 0} lượt đánh giá)`);
 
-      // Price
-      if (place.price && place.price !== 'Liên hệ') {
-        parts.push(`Giá/Chi phí: ${place.price}`);
-      }
-      if (place.priceLevel) {
-        const priceLevelMap: Record<string, string> = {
-          'BUDGET': 'Giá rẻ',
-          'MODERATE': 'Trung bình',
-          'EXPENSIVE': 'Cao cấp',
-          'LUXURY': 'Sang trọng',
-        };
-        parts.push(`Mức giá: ${priceLevelMap[place.priceLevel] || place.priceLevel}`);
-      }
+      if (place) {
+        parts.push(`\n--- DỮ LIỆU THỰC TẾ TỪ CSDL CLOUDMOOD VỀ ĐỊA ĐIỂM HỎI ---`);
+        parts.push(`Tên chính xác: "${place.name}"`);
+        parts.push(`Địa chỉ: ${place.address}`);
+        if (place.description) parts.push(`Mô tả: ${place.description}`);
+        if (place.category) parts.push(`Danh mục: ${place.category.name}`);
+        if (place.rating) parts.push(`Đánh giá: ${place.rating}/5 (${place.userRatingCount || 0} lượt)`);
 
-      // Opening hours
-      if (place.openingHours) {
-        try {
-          const hours = typeof place.openingHours === 'string'
-            ? JSON.parse(place.openingHours)
-            : place.openingHours;
-          if (Array.isArray(hours) && hours.length > 0) {
-            parts.push(`Giờ mở cửa: ${hours.join('; ')}`);
-          } else if (typeof hours === 'object' && hours !== null) {
-            parts.push(`Giờ mở cửa: ${JSON.stringify(hours)}`);
-          }
-        } catch { /* ignore parse error */ }
-      }
-
-      // Contact
-      if (place.phone) parts.push(`Điện thoại: ${place.phone}`);
-      if (place.website) parts.push(`Website: ${place.website}`);
-
-      // Reviews
-      if (place.reviews && place.reviews.length > 0) {
-        parts.push(`\nĐánh giá từ người dùng:`);
-        place.reviews.forEach((r, i) => {
-          const author = r.authorName || 'Người dùng';
-          parts.push(`  ${i + 1}. ${author} (${r.rating}⭐): "${r.comment.substring(0, 150)}${r.comment.length > 150 ? '...' : ''}"`);
+        const nearbyPlaces = await this.prisma.place.findMany({
+          where: {
+            id: { not: place.id },
+            isApproved: true,
+          },
+          include: { category: true },
+          orderBy: [{ userRatingCount: { sort: 'desc', nulls: 'last' } }],
+          take: 25,
         });
-      }
 
-      parts.push(`--- HẾT DỮ LIỆU ---`);
-      parts.push(`Hãy ưu tiên dùng dữ liệu thực ở trên để trả lời. Nếu dữ liệu không đủ, hãy dùng kiến thức chung nhưng nói rõ "theo thông tin chung".`);
+        if (nearbyPlaces.length > 0) {
+          parts.push(`\n=== DANH SÁCH ĐỊA ĐIỂM KHÁC CÓ TRONG CSDL CLOUDMOOD ===`);
+          parts.push(`QUY TẮC BẮT BUỘC: Nếu người dùng hỏi về các địa điểm tham quan/ăn uống/vui chơi xung quanh hoặc gợi ý thêm địa điểm, bạn BẮT BUỘC CHỈ ĐƯỢC LỰA CHỌN gợi ý từ danh sách CSDL dưới đây. Tuyệt đối không tự bịa đặt địa điểm bên ngoài!`);
+          nearbyPlaces.forEach((p, idx) => {
+            parts.push(`  ${idx + 1}. "${p.name}" (Danh mục: ${p.category?.name || 'Điểm tham quan'}) — Địa chỉ: ${p.address}`);
+          });
+          parts.push(`=== HẾT DANH SÁCH CSDL CLOUDMOOD ===`);
+        }
+      }
 
       return parts.join('\n');
     } catch (error) {
@@ -257,24 +232,44 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
 
   private async getDestinationContext(destination: string): Promise<string> {
     try {
-      // Lấy top places tại destination
-      const places = await this.prisma.place.findMany({
+      let places = await this.prisma.place.findMany({
         where: {
-          address: { contains: destination, mode: 'insensitive' },
+          OR: [
+            { address: { contains: destination, mode: 'insensitive' } },
+            { name: { contains: destination, mode: 'insensitive' } },
+            { description: { contains: destination, mode: 'insensitive' } },
+          ],
           isApproved: true,
         },
         include: { category: true },
         orderBy: [{ userRatingCount: { sort: 'desc', nulls: 'last' } }],
-        take: 10,
+        take: 30,
       });
+
+      if (places.length < 10) {
+        const topPlaces = await this.prisma.place.findMany({
+          where: { isApproved: true },
+          include: { category: true },
+          orderBy: [{ userRatingCount: { sort: 'desc', nulls: 'last' } }],
+          take: 30,
+        });
+        const existingIds = new Set(places.map(p => p.id.toString()));
+        for (const tp of topPlaces) {
+          if (!existingIds.has(tp.id.toString())) {
+            places.push(tp);
+          }
+        }
+      }
 
       if (places.length === 0) return '';
 
       const parts: string[] = [];
-      parts.push(`\n--- DỮ LIỆU THỰC TẾ TỪ HỆ THỐNG CLOUDMOOD ---`);
-      parts.push(`Các địa điểm nổi bật tại ${destination}:`);
+      parts.push(`\n=== DANH SÁCH ĐỊA ĐIỂM CHÍNH THỨC TRONG CSDL CLOUDMOOD ===`);
+      parts.push(`QUY TẮC NGUYÊN TẮC BẮT BUỘC:`);
+      parts.push(`1. BẮT BUỘC CHỈ ĐƯỢC GỢI Ý các địa điểm CÓ TÊN TRONG DỮ LIỆU CSDL DƯỚI ĐÂY.`);
+      parts.push(`2. KHÔNG TỰ BỊA ĐẶT hay đề xuất bất kỳ địa điểm ngoài CSDL.`);
+      parts.push(`3. Tên địa điểm trong gợi ý phải ghi CHÍNH XÁC 100% theo tên CSDL để hệ thống hiển thị thẻ Thêm Địa Điểm.`);
 
-      // Nhóm theo category
       const byCategory: Record<string, any[]> = {};
       places.forEach(p => {
         const cat = p.category?.name || 'Khác';
@@ -283,15 +278,14 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       });
 
       Object.entries(byCategory).forEach(([cat, items]) => {
-        parts.push(`\n📌 ${cat}:`);
+        parts.push(`\n📌 Danh mục ${cat}:`);
         items.forEach(p => {
           const ratingStr = p.rating ? ` (${p.rating}⭐)` : '';
-          parts.push(`  - ${p.name}${ratingStr} — ${p.address}`);
+          parts.push(`  - Tên chính xác: "${p.name}"${ratingStr} | Địa chỉ: ${p.address}`);
         });
       });
 
-      parts.push(`\n--- HẾT DỮ LIỆU ---`);
-      parts.push(`Hãy ưu tiên gợi ý các địa điểm có trong dữ liệu trên. Nếu cần thêm, hãy dùng kiến thức chung nhưng nói rõ.`);
+      parts.push(`\n=== HẾT DANH SÁCH CSDL CLOUDMOOD ===`);
 
       return parts.join('\n');
     } catch (error) {
@@ -301,7 +295,8 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ============================================
-  // SUGGESTIONS API: Câu hỏi gợi ý thông minh
+  // ============================================
+  // SUGGESTIONS API: Gợi ý câu hỏi lọc địa điểm thông minh
   // ============================================
 
   async getSuggestions(placeName: string, type: 'place' | 'trip' = 'place'): Promise<string[]> {
@@ -329,22 +324,15 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (place) {
-        // Chỉ hiện câu hỏi giờ mở cửa nếu có dữ liệu
         if (place.openingHours) {
           suggestions.push(`Giờ mở cửa ở đây thế nào?`);
         }
-
-        // Chỉ hiện câu hỏi giá nếu có dữ liệu price thực
         if (place.price && place.price !== 'Liên hệ' && place.price.trim() !== '') {
           suggestions.push(`Chi phí tham quan ở đây là bao nhiêu?`);
         }
-
-        // Chỉ hiện câu hỏi review nếu có reviews
         if (place.reviews && place.reviews.length > 0) {
           suggestions.push(`Mọi người đánh giá nơi này thế nào?`);
         }
-
-        // Câu hỏi theo category
         const catName = place.category?.name?.toLowerCase() || '';
         if (catName.includes('nhà hàng') || catName.includes('quán') || catName.includes('ăn')) {
           suggestions.push(`Món nào ngon nhất ở đây?`);
@@ -353,74 +341,31 @@ export class MobileAiService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Câu hỏi chung (AI trả lời tốt với kiến thức chung)
       suggestions.push(`Nên dành bao lâu để tham quan ở đây?`);
       suggestions.push(`Có lưu ý hay mẹo gì khi ghé thăm không?`);
       suggestions.push(`Xung quanh đây có gì đáng tham quan?`);
 
     } catch (error) {
-      this.logger.error('Error generating suggestions', error);
-      // Fallback: câu hỏi an toàn
+      this.logger.error('Error generating place suggestions', error);
+      suggestions.push(`Giờ mở cửa ở đây thế nào?`);
+      suggestions.push(`Chi phí tham quan ở đây là bao nhiêu?`);
       suggestions.push(`Nên dành bao lâu để tham quan ở đây?`);
       suggestions.push(`Có lưu ý hay mẹo gì khi ghé thăm không?`);
       suggestions.push(`Xung quanh đây có gì đáng tham quan?`);
     }
 
-    // Giới hạn tối đa 6 câu hỏi
     return suggestions.slice(0, 6);
   }
 
   private async getTripSuggestions(destination: string): Promise<string[]> {
-    const suggestions: string[] = [];
-
-    try {
-      // Kiểm tra xem destination có bao nhiêu places trong DB
-      const placeCount = await this.prisma.place.count({
-        where: {
-          address: { contains: destination, mode: 'insensitive' },
-          isApproved: true,
-        },
-      });
-
-      // Kiểm tra categories có sẵn
-      const categories = await this.prisma.place.findMany({
-        where: {
-          address: { contains: destination, mode: 'insensitive' },
-          isApproved: true,
-        },
-        select: { category: { select: { name: true } } },
-        distinct: ['categoryId'],
-      });
-
-      const catNames = categories.map(c => c.category.name.toLowerCase());
-
-      if (placeCount > 0) {
-        suggestions.push(`Gợi ý lịch trình 3 ngày du lịch`);
-      }
-
-      if (catNames.some(c => c.includes('nhà hàng') || c.includes('quán') || c.includes('ăn'))) {
-        suggestions.push(`Ẩm thực nổi bật ở đây là gì?`);
-      } else {
-        suggestions.push(`Ẩm thực ở đây có gì đặc biệt?`);
-      }
-
-      suggestions.push(`Nên đi vào tháng nào là đẹp nhất?`);
-      suggestions.push(`Phương tiện di chuyển thế nào?`);
-
-      if (placeCount > 5) {
-        suggestions.push(`Top 5 địa điểm phải đến nhất?`);
-      }
-
-      suggestions.push(`Ngân sách dự kiến khoảng bao nhiêu?`);
-
-    } catch (error) {
-      this.logger.error('Error generating trip suggestions', error);
-      suggestions.push(`Gợi ý lịch trình 3 ngày du lịch`);
-      suggestions.push(`Ẩm thực ở đây có gì đặc biệt?`);
-      suggestions.push(`Nên đi vào tháng nào đẹp nhất?`);
-    }
-
-    return suggestions.slice(0, 6);
+    return [
+      `Top địa điểm ẩm thực & đặc sản trứ danh tại ${destination}?`,
+      `Quán cà phê view đẹp, góc sống ảo cực chất tại ${destination}?`,
+      `Danh sách địa điểm tham quan & thắng cảnh nổi bật nhất?`,
+      `Địa điểm vui chơi, dạo đêm và trải nghiệm về đêm?`,
+      `Địa điểm mua sắm đặc sản và quà địa phương uy tín?`,
+      `Gợi ý khách sạn & homestay có view đẹp và tiện nghi?`,
+    ];
   }
 
   // ============================================

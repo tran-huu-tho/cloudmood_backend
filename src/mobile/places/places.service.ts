@@ -227,13 +227,15 @@ export class PlacesService {
       const cityOnly = destination.split(',')[0].trim();
       const normalizedDest = this.removeAccents(cityOnly);
       const destWords = normalizedDest.split(/\s+/).filter((w) => w.length > 1);
-      localPlaces = localPlaces.filter((place) => {
+      const filteredByDest = localPlaces.filter((place) => {
         const normalizedName = this.removeAccents(place.name);
         const normalizedAddress = this.removeAccents(place.address);
         const searchableText = `${normalizedName} ${normalizedAddress}`;
-        // Match if ALL significant destination words found in place name or address
         return destWords.every((word) => searchableText.includes(word));
       });
+      if (filteredByDest.length > 0 || !query) {
+        localPlaces = filteredByDest;
+      }
     }
 
     // In-memory filter for query to support accent-insensitive matching

@@ -153,9 +153,7 @@ export class ItinerariesService implements OnModuleInit {
         }
       }
 
-      const resolvedCover = isGuide
-        ? explorePostCover || directCover || dayConfigCover || placePhotoCover
-        : directCover || dayConfigCover || explorePostCover || placePhotoCover;
+      const resolvedCover = directCover || dayConfigCover || explorePostCover;
 
       return {
         ...item,
@@ -249,9 +247,7 @@ export class ItinerariesService implements OnModuleInit {
       }
     }
 
-    const resolvedCover = isGuide
-      ? explorePostCover || directCover || dayConfigCover || placePhotoCover
-      : directCover || dayConfigCover || explorePostCover || placePhotoCover;
+    const resolvedCover = directCover || dayConfigCover || explorePostCover;
 
     return {
       ...itinerary,
@@ -267,52 +263,42 @@ export class ItinerariesService implements OnModuleInit {
   async create(userId: string, data: any) {
     let coverImage = data.coverImage || null;
 
-    if (!coverImage && data.destination) {
+    // Tự động gán ngẫu nhiên 1 ảnh có categoryId = 32 từ bảng Place
+    if (!coverImage) {
       try {
-        const dest = data.destination.toString();
-        const places = await this.prisma.place.findMany({
-          where: {
-            OR: [
-              { address: { contains: dest, mode: 'insensitive' } },
-              { name: { contains: dest, mode: 'insensitive' } },
-            ],
-            photos: { some: {} },
-          },
-          include: { photos: true },
-          take: 30,
-        });
+        const dest = data.destination || '';
+        let places32: { image: string }[] = [];
 
-        const photos: string[] = [];
-        for (const p of places) {
-          for (const ph of p.photos) {
-            const url = ph.urlOriginal || ph.urlThumbnail;
-            if (url && !url.includes('via.placeholder.com')) {
-              photos.push(url);
-            }
-          }
-        }
-
-        if (photos.length === 0) {
-          const anyPlaces = await this.prisma.place.findMany({
-            where: { photos: { some: {} } },
-            include: { photos: true },
-            take: 30,
+        // Ưu tiên 1: Tìm các địa điểm có categoryId = 32 tại điểm đến (destination)
+        if (dest) {
+          places32 = await this.prisma.place.findMany({
+            where: {
+              categoryId: 32n,
+              address: { contains: dest, mode: 'insensitive' },
+              image: { not: '' },
+            },
+            select: { image: true },
+            take: 100,
           });
-          for (const p of anyPlaces) {
-            for (const ph of p.photos) {
-              const url = ph.urlOriginal || ph.urlThumbnail;
-              if (url && !url.includes('via.placeholder.com')) {
-                photos.push(url);
-              }
-            }
-          }
         }
 
-        if (photos.length > 0) {
-          coverImage = photos[Math.floor(Math.random() * photos.length)];
+        // Ưu tiên 2: Lấy ngẫu nhiên từ toàn bộ địa điểm có categoryId = 32 trong CSDL
+        if (places32.length === 0) {
+          places32 = await this.prisma.place.findMany({
+            where: {
+              categoryId: 32n,
+              image: { not: '' },
+            },
+            select: { image: true },
+            take: 100,
+          });
         }
-      } catch (e) {
-        // Ignored
+
+        if (places32.length > 0) {
+          coverImage = places32[Math.floor(Math.random() * places32.length)].image;
+        }
+      } catch (err) {
+        console.error('Error auto-assigning coverImage with categoryId = 32', err);
       }
     }
 

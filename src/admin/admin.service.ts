@@ -350,8 +350,24 @@ export class AdminService {
     const description =
       body?.description ||
       `Hướng dẫn du lịch ${itinerary.destination} vô cùng chi tiết từ CloudMood.`;
-    const coverImage =
-      body?.coverImage || itinerary.coverImage || '/logo-xoanen-cloudmood.png';
+    let coverImage =
+      body?.coverImage || itinerary.coverImage || null;
+    if (!coverImage) {
+      try {
+        const dest = itinerary.destination || '';
+        const placeCat32 = await this.prisma.place.findFirst({
+          where: {
+            categoryId: 32n,
+            ...(dest ? { address: { contains: dest, mode: 'insensitive' } } : {}),
+            image: { not: '' },
+          },
+          select: { image: true },
+        });
+        coverImage = placeCat32?.image || '/logo-xoanen-cloudmood.png';
+      } catch (_) {
+        coverImage = '/logo-xoanen-cloudmood.png';
+      }
+    }
 
     let authorId = itinerary.userId;
     if (!authorId) {
