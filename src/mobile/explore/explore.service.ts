@@ -125,6 +125,13 @@ export class ExploreService {
       throw new NotFoundException(`ExplorePost with ID ${id} not found`);
     }
 
+    if (post.description) {
+      const d = post.description.trim().toLowerCase();
+      if (d === 'public' || d === 'private' || d === 'friends' || d === 'null' || d === 'undefined') {
+        (post as any).description = null;
+      }
+    }
+
     return post;
   }
 
@@ -284,7 +291,8 @@ export class ExploreService {
     });
 
     const title = data?.title || itin?.title || 'Bài hướng dẫn';
-    const description = data?.description || itin?.companion || null;
+    const rawDesc = (typeof data?.description === 'string' ? data.description : (itin as any)?.description) || '';
+    const description = (rawDesc && rawDesc.trim() !== 'public' && rawDesc.trim() !== 'private' && rawDesc.trim() !== 'friends') ? rawDesc.trim() : null;
     const destination = data?.destination || itin?.destination || null;
     let coverImage = data?.coverImage || itin?.coverImage || null;
     if (!coverImage) {
