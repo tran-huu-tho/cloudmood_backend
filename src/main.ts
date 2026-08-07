@@ -14,6 +14,6 @@ async function bootstrap() {
   app.use(urlencoded({ limit: '50mb', extended: true }));
   app.use('/uploads', express.static(path.join(process.cwd(), '../cloudmood_web/public/uploads')));
   app.enableCors();
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }
 bootstrap();

@@ -1075,14 +1075,33 @@ export class RuleEngineService {
       { startTime: '19:00', endTime: '22:00' }, // Slot 9: Vui chơi tối / Cà phê đêm
     ];
 
-    const firstItem = places[0];
+    // Ensure any early market (Chợ nổi) is sorted to index 0
+    const sortedPlaces = [...places];
+    sortedPlaces.sort((a, b) => {
+      const pIdA = a.placeId || a.id || a.place?.id;
+      const pObjA = pIdA ? candidatePlacesMap.get(Number(pIdA)) : null;
+      const nameA = (pObjA?.name || a.name || a.place?.name || '').toLowerCase();
+      const isMarketA = nameA.includes('chợ nổi') || nameA.includes('cái răng') || nameA.includes('floating market');
+
+      const pIdB = b.placeId || b.id || b.place?.id;
+      const pObjB = pIdB ? candidatePlacesMap.get(Number(pIdB)) : null;
+      const nameB = (pObjB?.name || b.name || b.place?.name || '').toLowerCase();
+      const isMarketB = nameB.includes('chợ nổi') || nameB.includes('cái răng') || nameB.includes('floating market');
+
+      if (isMarketA && !isMarketB) return -1;
+      if (!isMarketA && isMarketB) return 1;
+      return 0;
+    });
+
+    const firstItem = sortedPlaces[0];
     const firstPlaceId = firstItem ? (firstItem.placeId || firstItem.id || firstItem.place?.id) : null;
     const firstPlaceObj = firstPlaceId ? candidatePlacesMap.get(Number(firstPlaceId)) : null;
-    const isEarlyMarket = firstPlaceObj && (firstPlaceObj.name || '').toLowerCase().includes('chợ nổi');
+    const firstName = (firstPlaceObj?.name || firstItem?.name || firstItem?.place?.name || '').toLowerCase();
+    const isEarlyMarket = firstName.includes('chợ nổi') || firstName.includes('cái răng') || firstName.includes('floating market');
 
     const activeMatrix = isEarlyMarket ? canThoSlotMatrix : standardSlotMatrix;
 
-    return places.map((item, idx) => {
+    return sortedPlaces.map((item, idx) => {
       const placeObj = candidatePlacesMap.get(Number(item.placeId || item.id || item.place?.id));
 
       let startTimeStr = '';
