@@ -965,9 +965,13 @@ export class RuleEngineService {
       return null;
     };
 
-    const firstPlaceId = dayPlaces && dayPlaces[0] ? (dayPlaces[0].placeId || dayPlaces[0].id || dayPlaces[0].place?.id) : null;
-    const firstPlaceObj = firstPlaceId ? candidatePlacesMap.get(Number(firstPlaceId)) : null;
-    const isEarlyMarket = firstPlaceObj && (firstPlaceObj.name || '').toLowerCase().includes('chợ nổi');
+    const isEarlyMarket = (dayNumber === 1 && (cr.includes('chợ nổi') || cr.includes('cái răng'))) ||
+                          sortedEarly.length > 0 ||
+                          (dayPlaces || []).some((dp) => {
+                            const pObj = candidatePlacesMap.get(Number(dp.placeId || dp.id));
+                            return (pObj?.name || dp.name || '').toLowerCase().includes('chợ nổi') || (pObj?.name || dp.name || '').toLowerCase().includes('cái răng');
+                          });
+
     const targetLength = isEarlyMarket ? 10 : 9;
     let slotsConfig: Array<Array<'DINING' | 'CAFE' | 'ATTRACTION' | 'HOTEL'>> = [];
 
@@ -1003,6 +1007,19 @@ export class RuleEngineService {
         if (sortedEarly.length > 0) {
           result.push(sortedEarly.shift());
           continue;
+        } else {
+          let foundMarket: any = null;
+          for (const [id, cp] of candidatePlacesMap.entries()) {
+            const cpName = (cp.name || '').toLowerCase();
+            if (cpName.includes('chợ nổi') || cpName.includes('cái răng')) {
+              foundMarket = { placeId: Number(id) };
+              break;
+            }
+          }
+          if (foundMarket) {
+            result.push(foundMarket);
+            continue;
+          }
         }
       }
 
@@ -1484,7 +1501,15 @@ export class RuleEngineService {
 
           const catName = (p.category?.name || '').toLowerCase();
           const name = (p.name || '').toLowerCase();
+          const desc = (p.description || '').toLowerCase();
           const group = this.getGeneralCategoryGroup(p);
+
+          const isEarlyMarketPlace = name.includes('chợ nổi') || name.includes('cái răng') || desc.includes('chợ nổi');
+          const isHuTieuPlace = name.includes('hủ tiếu') || desc.includes('hủ tiếu');
+
+          // Exempt Early Market & Hủ Tiếu from strict slot category restrictions
+          if (isEarlyMarketPlace && (sIdx === 0 || sIdx === 1)) return false;
+          if (isHuTieuPlace && (sIdx === 0 || sIdx === 1 || sIdx === 2 || sIdx === 3)) return false;
 
           // 2. Ép buộc Khách sạn ở Slot Check-in (sIdx === 4) Ngày 1 và CẤM Khách sạn ở Ngày 2+ hoặc ở slot khác
           if (isDay1 && sIdx === 4) {
@@ -1506,11 +1531,12 @@ export class RuleEngineService {
 
           // 4. Slot Ăn trưa (sIdx === 3) và Ăn tối (sIdx === 7) BẮT BUỘC là DINING
           if (sIdx === 3 || sIdx === 7) {
-            if (group !== 'DINING') return true;
+            if (group !== 'DINING' && !isHuTieuPlace) return true;
           }
 
           // 5. Slot Ăn sáng / Cafe (sIdx === 0) BẮT BUỘC là CAFE / Điểm tâm nhẹ (CẤM Buffet, Lẩu, Nướng, Nhà hàng nặng)
           if (sIdx === 0) {
+            if (isEarlyMarketPlace || isHuTieuPlace) return false;
             if (group !== 'CAFE' && group !== 'DINING') return true;
             const fullT = `${catName} ${name}`.toLowerCase();
             const isHeavyFood = ['buffet', 'lẩu', 'nướng', 'bbq', 'nhậu', 'hải sản', 'yaki', 'nhà hàng', 'quán nướng'].some(k => fullT.includes(k));
@@ -1519,11 +1545,13 @@ export class RuleEngineService {
 
           // 6. Slot Tham quan (sIdx === 1, 2, 5, 6) BẮT BUỘC là ATTRACTION / PAGODA (CẤM TUYỆT ĐỐI nhà hàng, quán ăn, cà phê, khách sạn)
           if (sIdx === 1 || sIdx === 2 || sIdx === 5 || sIdx === 6) {
+            if (isEarlyMarketPlace || isHuTieuPlace) return false;
             if (group !== 'ATTRACTION' && group !== 'PAGODA') return true;
           }
 
           // 7. CẤM NHÀ HÀNG / QUÁN ĂN NẶNG (DINING) XUẤT HIỆN Ở BẤT KỲ SLOT NÀO KHÁC BỮA TRƯA (Slot 3) VÀ BỮA TỐI (Slot 7)
           if (group === 'DINING') {
+            if (isHuTieuPlace) return false;
             if (sIdx !== 3 && sIdx !== 7) return true;
           }
 
@@ -1555,7 +1583,9 @@ export class RuleEngineService {
           return false;
         };
 
-        if (isViolation(placeObj, slotIdx)) {
+        const isMustKeepPlace = (placeObj?.name || '').toLowerCase().includes('chợ nổi') || (placeObj?.name || '').toLowerCase().includes('cái răng') || (placeObj?.name || '').toLowerCase().includes('hủ tiếu');
+
+        if (isViolation(placeObj, slotIdx) && !isMustKeepPlace) {
           let replacementFound = false;
           for (const [candId, candidate] of candidatePlacesMap.entries()) {
             const cId = Number(candId);
